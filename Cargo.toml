@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kt-protocol",
+    "crates/kt-core",
+    "crates/kt-orchestrator",
+    "crates/kt-agent",
+    "crates/kt-cli",
+    "apps/kt-desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Adam"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/k-terminus"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.36", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+# SSH
+russh = "0.45"
+russh-keys = "0.45"
+
+# PTY
+portable-pty = "0.8"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+bincode = "1.3"
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Bytes and data structures
+bytes = { version = "1.5", features = ["serde"] }
+dashmap = "5.5"
+
+# Async utilities
+async-trait = "0.1"
+futures = "0.3"
+
+# Cryptography (for key handling)
+rand = "0.8"
+
+# Internal crates
+kt-protocol = { path = "crates/kt-protocol" }
+kt-core = { path = "crates/kt-core" }
+kt-orchestrator = { path = "crates/kt-orchestrator" }
+kt-agent = { path = "crates/kt-agent" }
+kt-cli = { path = "crates/kt-cli" }

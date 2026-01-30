@@ -1,0 +1,37 @@
+[package]
+name = "kt-desktop"
+version = "0.1.0"
+description = "k-Terminus Desktop GUI"
+authors = ["k-Terminus Team"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "kt_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.36", features = ["full"] }
+anyhow = "1.0"
+tracing = "0.1"
+
+# Reference the workspace crates
+kt-protocol = { path = "../../../crates/kt-protocol" }
+kt-core = { path = "../../../crates/kt-core" }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

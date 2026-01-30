@@ -1,0 +1,27 @@
+[package]
+name = "kt-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core abstractions and configuration for k-Terminus"
+
+[dependencies]
+kt-protocol.workspace = true
+
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+
+dirs = "5.0"
+whoami = "1.5"
+gethostname = "0.4"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+tempfile = "3.10"

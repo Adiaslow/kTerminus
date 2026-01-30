@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: theme("colors.terminal.black");
+}
+
+::-webkit-scrollbar-thumb {
+  background: theme("colors.terminal.fg" / 20%);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: theme("colors.terminal.fg" / 40%);
+}
+
+/* xterm.js overrides */
+.xterm {
+  padding: 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: theme("colors.terminal.fg" / 20%);
+  border-radius: 4px;
+}
+
+/* Panel resize handles */
+.resize-handle {
+  @apply bg-transparent hover:bg-terminal-blue/30 transition-colors;
+}
+
+.resize-handle-horizontal {
+  @apply cursor-col-resize w-1;
+}
+
+.resize-handle-vertical {
+  @apply cursor-row-resize h-1;
+}
+
+/* Machine status indicators */
+.status-indicator {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-connected {
+  @apply bg-terminal-green;
+}
+
+.status-disconnected {
+  @apply bg-terminal-red;
+}
+
+.status-connecting {
+  @apply bg-terminal-yellow animate-pulse;
+}
+
+/* Tab styling */
+.tab {
+  @apply px-3 py-1.5 text-sm cursor-pointer transition-colors;
+  @apply border-b-2 border-transparent;
+  @apply hover:bg-sidebar-hover;
+}
+
+.tab-active {
+  @apply border-terminal-blue bg-sidebar-active;
+}
+
+/* Button styling */
+.btn {
+  @apply px-3 py-1.5 rounded text-sm font-medium transition-colors;
+  @apply focus:outline-none focus:ring-2 focus:ring-terminal-blue/50;
+}
+
+.btn-primary {
+  @apply bg-terminal-blue text-white hover:bg-terminal-blue/80;
+}
+
+.btn-secondary {
+  @apply bg-sidebar-hover text-terminal-fg hover:bg-sidebar-active;
+}
+
+.btn-danger {
+  @apply bg-terminal-red text-white hover:bg-terminal-red/80;
+}
+
+/* Input styling */
+.input {
+  @apply bg-terminal-black border border-sidebar-active rounded px-3 py-1.5;
+  @apply text-terminal-fg placeholder-terminal-fg/50;
+  @apply focus:outline-none focus:border-terminal-blue;
+}
+
+/* React Flow customizations */
+.react-flow__node {
+  @apply bg-sidebar-bg border border-sidebar-active rounded-lg;
+}
+
+.react-flow__edge-path {
+  stroke: theme("colors.terminal.fg" / 30%);
+  stroke-width: 2;
+}
+
+.react-flow__controls {
+  @apply bg-sidebar-bg border border-sidebar-active rounded;
+}
+
+.react-flow__controls-button {
+  @apply bg-sidebar-bg border-sidebar-active text-terminal-fg;
+  @apply hover:bg-sidebar-hover;
+}

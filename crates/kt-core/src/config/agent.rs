@@ -1,0 +1,97 @@
+//! Agent configuration
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::time::Duration;
+
+use super::orchestrator::BackoffConfig;
+
+/// Configuration for the client agent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentConfig {
+    /// Orchestrator address to connect to
+    pub orchestrator_address: String,
+
+    /// Path to the private key for authentication
+    pub private_key_path: PathBuf,
+
+    /// Expected orchestrator host key (for verification)
+    pub orchestrator_host_key: Option<String>,
+
+    /// Username for SSH authentication
+    pub username: String,
+
+    /// Machine alias (optional, defaults to hostname)
+    pub alias: Option<String>,
+
+    /// Tags for this machine
+    pub tags: Vec<String>,
+
+    /// Default shell to spawn
+    pub default_shell: Option<String>,
+
+    /// Default environment variables for sessions
+    pub default_env: Vec<(String, String)>,
+
+    /// Backoff configuration for reconnections
+    pub backoff: BackoffConfig,
+
+    /// Connection timeout
+    #[serde(with = "humantime_serde")]
+    pub connect_timeout: Duration,
+
+    /// Maximum number of concurrent sessions
+    pub max_sessions: Option<u32>,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            orchestrator_address: "localhost:2222".to_string(),
+            private_key_path: dirs::home_dir()
+                .unwrap_or_default()
+                .join(".ssh")
+                .join("id_ed25519"),
+            orchestrator_host_key: None,
+            username: whoami::username(),
+            alias: None,
+            tags: vec![],
+            default_shell: None,
+            default_env: vec![("TERM".to_string(), "xterm-256color".to_string())],
+            backoff: BackoffConfig::default(),
+            connect_timeout: Duration::from_secs(30),
+            max_sessions: None,
+        }
+    }
+}
+
+impl AgentConfig {
+    /// Get the machine alias, falling back to hostname
+    pub fn machine_alias(&self) -> String {
+        self.alias
+            .clone()
+            .unwrap_or_else(|| gethostname::gethostname().to_string_lossy().into_owned())
+    }
+}
+
+// Helper module for Duration serialization
+mod humantime_serde {
+    use serde::{self, Deserialize, Deserializer, Serializer};
+    use std::time::Duration;
+
+    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(duration.as_secs())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let secs = u64::deserialize(deserializer)?;
+        Ok(Duration::from_secs(secs))
+    }
+}

@@ -1,0 +1,32 @@
+[package]
+name = "kt-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "k-Terminus command-line interface"
+
+[[bin]]
+name = "k-terminus"
+path = "src/main.rs"
+
+[dependencies]
+kt-protocol.workspace = true
+kt-core.workspace = true
+
+tokio.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+crossterm = "0.27"
+tabled = "0.15"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+assert_cmd = "2.0"
+predicates = "3.1"
