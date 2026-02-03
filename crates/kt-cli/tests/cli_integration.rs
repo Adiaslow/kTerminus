@@ -96,6 +96,7 @@ fn test_cli_unknown_command() {
 }
 
 #[test]
+#[ignore] // Requires running orchestrator - run with: cargo test -- --ignored
 fn test_cli_list() {
     // The CLI auto-starts the orchestrator if needed, so this should succeed
     k_terminus()
@@ -106,6 +107,7 @@ fn test_cli_list() {
 }
 
 #[test]
+#[ignore] // Requires running orchestrator - run with: cargo test -- --ignored
 fn test_cli_status() {
     // The CLI auto-starts the orchestrator if needed, so this should succeed
     k_terminus()
