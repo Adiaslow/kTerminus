@@ -8,12 +8,14 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use kt_core::ipc::IpcEvent;
+
 use kt_core::config::{self, OrchestratorConfig};
-use kt_orchestrator::auth::AuthorizedKeys;
+use kt_orchestrator::ipc::IpcServer;
 use kt_orchestrator::server::{load_or_generate_host_key, ConnectionEvent, SshServer};
 use kt_orchestrator::OrchestratorState;
 
@@ -44,7 +46,11 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logging
-    let log_level = if args.foreground { "debug" } else { &args.log_level };
+    let log_level = if args.foreground {
+        "debug"
+    } else {
+        &args.log_level
+    };
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| log_level.into()),
@@ -76,24 +82,13 @@ async fn main() -> Result<()> {
 
     // Load or generate host key
     let host_key = load_or_generate_host_key(&config.host_key_path).await?;
-    tracing::info!("Host key fingerprint: {}", host_key.clone_public_key().unwrap().fingerprint());
-
-    // Load authorized keys
-    let auth_keys = if config.auth_keys.is_empty() {
-        tracing::warn!("No authorized keys configured - all connections will be rejected");
-        AuthorizedKeys::new()
-    } else {
-        AuthorizedKeys::load_from_files(&config.auth_keys)?
-    };
-
-    if auth_keys.is_empty() {
-        tracing::warn!("No valid authorized keys found - all connections will be rejected");
-    } else {
-        tracing::info!("Loaded {} authorized keys", auth_keys.len());
-    }
+    tracing::info!(
+        "Host key fingerprint: {}",
+        host_key.clone_public_key().unwrap().fingerprint()
+    );
 
     // Create orchestrator state
-    let state = Arc::new(OrchestratorState::with_auth(config.clone(), auth_keys));
+    let state = Arc::new(OrchestratorState::new(config.clone()));
 
     // Create cancellation token for graceful shutdown
     let cancel = CancellationToken::new();
@@ -129,13 +124,50 @@ async fn main() -> Result<()> {
     // Create event channel for connection events
     let (event_tx, mut event_rx) = mpsc::channel::<ConnectionEvent>(256);
 
+    // Start IPC server for CLI/GUI communication
+    // (Create early so we can get the event sender for the event handler)
+    let ipc_address = config.ipc_address();
+    let ipc_server = Arc::new(
+        IpcServer::new(ipc_address.clone(), Arc::clone(&state)).with_shutdown_token(cancel.clone()),
+    );
+    let ipc_event_tx = ipc_server.event_sender();
+
     // Spawn event handler
     let state_clone = Arc::clone(&state);
     tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
-            handle_connection_event(&state_clone, event).await;
+            handle_connection_event(&state_clone, event, &ipc_event_tx).await;
         }
     });
+
+    // Spawn IPC server task
+    let ipc_server_clone = Arc::clone(&ipc_server);
+    let cancel_ipc = cancel.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            result = ipc_server_clone.run() => {
+                if let Err(e) = result {
+                    tracing::error!("IPC server error: {}", e);
+                }
+            }
+            _ = cancel_ipc.cancelled() => {
+                tracing::info!("IPC server shutting down");
+            }
+        }
+    });
+    tracing::info!("IPC server listening on {}", ipc_address);
+
+    // Start health monitor
+    let health_monitor = kt_orchestrator::connection::HealthMonitor::new(
+        config.heartbeat_interval,
+        config.heartbeat_timeout,
+    );
+    let _health_handle = health_monitor.spawn(Arc::clone(&state), cancel.clone());
+    tracing::info!(
+        "Health monitor started (interval={:?}, timeout={:?})",
+        config.heartbeat_interval,
+        config.heartbeat_timeout
+    );
 
     // Create and run SSH server
     let server = SshServer::new(host_key, Arc::clone(&state), cancel.clone(), event_tx);
@@ -148,41 +180,105 @@ async fn main() -> Result<()> {
 }
 
 /// Handle connection events from SSH handlers
-async fn handle_connection_event(state: &OrchestratorState, event: ConnectionEvent) {
+async fn handle_connection_event(
+    state: &OrchestratorState,
+    event: ConnectionEvent,
+    ipc_event_tx: &broadcast::Sender<IpcEvent>,
+) {
+    use kt_orchestrator::connection::TunnelConnection;
+
     match event {
         ConnectionEvent::MachineConnected {
             machine_id,
             alias,
             hostname,
+            os,
+            arch,
+            command_tx,
+            cancel,
         } => {
             tracing::info!(
-                "Machine connected: {} (alias: {}, hostname: {})",
+                "Machine connected: {} (alias: {}, hostname: {}, os: {}, arch: {})",
                 machine_id,
                 alias,
-                hostname
+                hostname,
+                os,
+                arch
             );
-            // TODO: Register in connection pool
+            // Register in connection pool with command channel
+            state.connections.insert(TunnelConnection::new(
+                machine_id.clone(),
+                Some(alias.clone()),
+                Some(hostname.clone()),
+                os.clone(),
+                arch.clone(),
+                command_tx,
+                cancel,
+            ));
+
+            // Broadcast to IPC clients
+            let _ = ipc_event_tx.send(IpcEvent::MachineConnected(kt_core::ipc::MachineInfo {
+                id: machine_id.to_string(),
+                alias: Some(alias),
+                hostname,
+                os,
+                arch,
+                status: kt_core::ipc::MachineStatus::Connected,
+                connected_at: None,
+                last_heartbeat: None,
+                session_count: 0,
+                tags: vec![],
+            }));
         }
 
         ConnectionEvent::MachineDisconnected { machine_id } => {
             tracing::info!("Machine disconnected: {}", machine_id);
-            // TODO: Remove from connection pool
+            // Remove from connection pool
+            state.connections.remove(&machine_id);
+
+            // Broadcast to IPC clients
+            let _ = ipc_event_tx.send(IpcEvent::MachineDisconnected {
+                machine_id: machine_id.to_string(),
+            });
         }
 
         ConnectionEvent::SessionCreated {
             machine_id,
             session_id,
+            pid,
         } => {
-            tracing::info!("Session created: {} on {}", session_id, machine_id);
-            // TODO: Track session
+            tracing::info!(
+                "Session {} ready on {} (pid={})",
+                session_id,
+                machine_id,
+                pid
+            );
+            // Update session with PID from agent
+            state.sessions.set_pid(session_id, pid);
+
+            // Broadcast to IPC clients
+            let _ = ipc_event_tx.send(IpcEvent::SessionCreated(kt_core::ipc::SessionInfo {
+                id: session_id.to_string(),
+                machine_id: machine_id.to_string(),
+                shell: None,
+                created_at: String::new(),
+                pid: Some(pid),
+                size: None,
+            }));
         }
 
         ConnectionEvent::SessionClosed {
             machine_id,
             session_id,
         } => {
-            tracing::info!("Session closed: {} on {}", session_id, machine_id);
-            // TODO: Remove session
+            tracing::info!("Session {} closed on {}", session_id, machine_id);
+            // Remove session from session manager
+            state.sessions.remove(session_id);
+
+            // Broadcast to IPC clients
+            let _ = ipc_event_tx.send(IpcEvent::SessionClosed {
+                session_id: session_id.to_string(),
+            });
         }
 
         ConnectionEvent::SessionData {
@@ -196,7 +292,13 @@ async fn handle_connection_event(state: &OrchestratorState, event: ConnectionEve
                 session_id,
                 machine_id
             );
-            // TODO: Route to attached client
+            // Broadcast to IPC clients
+            let event = IpcEvent::TerminalOutput {
+                session_id: session_id.to_string(),
+                data,
+            };
+            // Ignore send errors (no subscribers is fine)
+            let _ = ipc_event_tx.send(event);
         }
     }
 }

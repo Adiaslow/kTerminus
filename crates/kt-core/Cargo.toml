@@ -4,12 +4,16 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Core abstractions and configuration for k-Terminus"
+keywords = ["terminal", "ssh", "tailscale", "configuration"]
+categories = ["config", "network-programming"]
 
 [dependencies]
 kt-protocol.workspace = true
 
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
@@ -17,10 +21,13 @@ async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 bytes.workspace = true
+sha2.workspace = true
+rand.workspace = true
 
 dirs = "5.0"
 whoami = "1.5"
 gethostname = "0.4"
+reqwest.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

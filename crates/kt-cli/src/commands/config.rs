@@ -4,8 +4,130 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-use kt_core::config;
 use crate::output::{print_error, print_info, print_success, print_warning};
+use kt_core::config;
+
+/// Get a config value by key
+pub fn config_get(config_path: Option<&PathBuf>, key: &str) -> Result<()> {
+    let path = config_path
+        .cloned()
+        .unwrap_or_else(|| config::default_config_dir().join("config.toml"));
+
+    if !path.exists() {
+        print_error(&format!("Config file not found: {:?}", path));
+        print_info("Run 'k-terminus config init' to create one");
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read config file: {:?}", path))?;
+
+    let table: toml::Table =
+        toml::from_str(&content).with_context(|| "Failed to parse config file")?;
+
+    // Navigate through the key path (e.g., "orchestrator.bind_address")
+    let parts: Vec<&str> = key.split('.').collect();
+    let mut current: &toml::Value = &toml::Value::Table(table);
+
+    for part in &parts {
+        match current {
+            toml::Value::Table(t) => {
+                if let Some(v) = t.get(*part) {
+                    current = v;
+                } else {
+                    print_error(&format!("Key not found: {}", key));
+                    return Ok(());
+                }
+            }
+            _ => {
+                print_error(&format!("Key not found: {}", key));
+                return Ok(());
+            }
+        }
+    }
+
+    // Print the value
+    match current {
+        toml::Value::String(s) => println!("{}", s),
+        toml::Value::Integer(i) => println!("{}", i),
+        toml::Value::Float(f) => println!("{}", f),
+        toml::Value::Boolean(b) => println!("{}", b),
+        toml::Value::Array(a) => {
+            for item in a {
+                println!("{}", item);
+            }
+        }
+        toml::Value::Table(_) => {
+            // Print sub-table as TOML
+            println!("{}", toml::to_string_pretty(current)?);
+        }
+        toml::Value::Datetime(d) => println!("{}", d),
+    }
+
+    Ok(())
+}
+
+/// Set a config value by key
+pub fn config_set(config_path: Option<&PathBuf>, key: &str, value: &str) -> Result<()> {
+    let path = config_path
+        .cloned()
+        .unwrap_or_else(|| config::default_config_dir().join("config.toml"));
+
+    // Create default config if it doesn't exist
+    if !path.exists() {
+        print_info("Creating default configuration...");
+        config_init(config_path, false)?;
+    }
+
+    let content = std::fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read config file: {:?}", path))?;
+
+    let mut table: toml::Table =
+        toml::from_str(&content).with_context(|| "Failed to parse config file")?;
+
+    // Navigate through the key path and set the value
+    let parts: Vec<&str> = key.split('.').collect();
+
+    if parts.is_empty() {
+        anyhow::bail!("Invalid key");
+    }
+
+    // Navigate/create path to the parent
+    let mut current = &mut table;
+    for part in &parts[..parts.len() - 1] {
+        if !current.contains_key(*part) {
+            current.insert(part.to_string(), toml::Value::Table(toml::Table::new()));
+        }
+        current = current
+            .get_mut(*part)
+            .and_then(|v| v.as_table_mut())
+            .ok_or_else(|| anyhow::anyhow!("Cannot navigate to key: {}", key))?;
+    }
+
+    // Set the value (try to parse as appropriate type)
+    let last_key = parts.last().unwrap();
+    let toml_value = if value == "true" {
+        toml::Value::Boolean(true)
+    } else if value == "false" {
+        toml::Value::Boolean(false)
+    } else if let Ok(i) = value.parse::<i64>() {
+        toml::Value::Integer(i)
+    } else if let Ok(f) = value.parse::<f64>() {
+        toml::Value::Float(f)
+    } else {
+        toml::Value::String(value.to_string())
+    };
+
+    current.insert(last_key.to_string(), toml_value);
+
+    // Write back
+    let new_content = toml::to_string_pretty(&table)?;
+    std::fs::write(&path, new_content)
+        .with_context(|| format!("Failed to write config file: {:?}", path))?;
+
+    print_success(&format!("Set {} = {}", key, value));
+    Ok(())
+}
 
 /// Show current configuration
 pub fn config_show(config_path: Option<&PathBuf>) -> Result<()> {
@@ -117,30 +239,28 @@ fn generate_default_config() -> String {
 # Address to bind SSH server
 bind_address = "0.0.0.0:2222"
 
-# Paths to authorized public keys for agent authentication
-auth_keys = ["~/.config/k-terminus/authorized_keys"]
-
 # Host key file path (will be generated if missing)
 host_key_path = "~/.config/k-terminus/host_key"
 
 # Heartbeat interval in seconds
 heartbeat_interval = 30
 
-# Connection timeout in seconds
-connect_timeout = 10
+# Heartbeat timeout in seconds
+heartbeat_timeout = 90
 
 [orchestrator.backoff]
 # Initial retry delay in seconds
-initial_secs = 1
+initial = 1
 # Maximum retry delay in seconds
-max_secs = 60
+max = 60
 # Backoff multiplier
 multiplier = 2.0
+# Jitter factor
+jitter = 0.25
 
 # Example machine profiles
 # [[machines]]
 # alias = "dev-server"
-# host_key = "ssh-ed25519 AAAAC3..."
 # tags = ["development"]
 # default_shell = "/bin/bash"
 # [machines.env]

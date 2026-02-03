@@ -122,6 +122,9 @@ mod tests {
     fn test_unknown_message_type() {
         let mut buf = BytesMut::from(&[0, 0, 0, 1, 0xFE, 0, 0, 10][..]);
         let result = FrameHeader::decode(&mut buf);
-        assert!(matches!(result, Err(ProtocolError::UnknownMessageType(0xFE))));
+        assert!(matches!(
+            result,
+            Err(ProtocolError::UnknownMessageType(0xFE))
+        ));
     }
 }

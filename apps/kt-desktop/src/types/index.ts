@@ -39,6 +39,7 @@ export interface OrchestratorStatus {
   machineCount: number;
   sessionCount: number;
   version: string;
+  tailscaleHostname?: string;
 }
 
 // IPC message types (for Tauri commands)
@@ -61,12 +62,14 @@ export interface TerminalResizeParams {
 // Event types from Tauri
 export interface MachineEvent {
   type: "connected" | "disconnected" | "updated";
-  machine: Machine;
+  machine?: Machine;
+  machineId?: string;
 }
 
 export interface SessionEvent {
   type: "created" | "closed";
-  session: Session;
+  session?: Session;
+  sessionId?: string;
   exitCode?: number;
 }
 

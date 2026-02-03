@@ -27,7 +27,10 @@ pub async fn list_command(
             .into_iter()
             .filter(|m| {
                 m.id.contains(filter)
-                    || m.alias.as_ref().map(|a| a.contains(filter)).unwrap_or(false)
+                    || m.alias
+                        .as_ref()
+                        .map(|a| a.contains(filter))
+                        .unwrap_or(false)
                     || m.hostname.contains(filter)
             })
             .collect()

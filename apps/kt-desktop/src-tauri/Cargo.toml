@@ -16,22 +16,23 @@ tauri-build = { version = "2.0", features = [] }
 [dependencies]
 tauri = { version = "2.0", features = [] }
 tauri-plugin-shell = "2.0"
+tauri-plugin-updater = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.36", features = ["full"] }
+tokio-util = "0.7"
 anyhow = "1.0"
 tracing = "0.1"
 
 # Reference the workspace crates
 kt-protocol = { path = "../../../crates/kt-protocol" }
 kt-core = { path = "../../../crates/kt-core" }
+kt-orchestrator = { path = "../../../crates/kt-orchestrator" }
+
+# For embedded orchestrator
+russh-keys = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-
-[profile.release]
-strip = true
-lto = true
-codegen-units = 1
-panic = "abort"

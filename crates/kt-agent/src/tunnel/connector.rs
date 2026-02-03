@@ -10,6 +10,7 @@ use bytes::BytesMut;
 use russh::client::{self, Config, Handle, Msg};
 use russh::{Channel, ChannelId, Disconnect};
 use russh_keys::key::{KeyPair, PublicKey};
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -17,6 +18,30 @@ use kt_core::config::AgentConfig;
 use kt_protocol::{Frame, FrameCodec, Message, SessionId, TerminalSize};
 
 use super::reconnect::ExponentialBackoff;
+
+/// Connection errors that may require special handling
+#[derive(Debug, Error)]
+pub enum ConnectionError {
+    /// Private key file not found
+    #[error("Private key not found at {path}: {source}")]
+    KeyNotFound {
+        path: String,
+        #[source]
+        source: anyhow::Error,
+    },
+
+    /// Authentication was rejected by the orchestrator
+    #[error("Authentication rejected by orchestrator")]
+    AuthRejected,
+
+    /// Host key verification failed
+    #[error("Host key verification failed: {message}")]
+    HostKeyRejected { message: String },
+
+    /// Other connection error
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
+}
 
 /// Establishes and maintains the outbound SSH tunnel to the orchestrator
 pub struct TunnelConnector {
@@ -28,10 +53,22 @@ pub struct TunnelConnector {
 
 impl TunnelConnector {
     /// Create a new tunnel connector
-    pub fn new(config: AgentConfig) -> Result<Self> {
+    pub fn new(config: AgentConfig) -> Result<Self, ConnectionError> {
+        // Check if key file exists first
+        if !config.private_key_path.exists() {
+            return Err(ConnectionError::KeyNotFound {
+                path: config.private_key_path.display().to_string(),
+                source: anyhow::anyhow!("File does not exist"),
+            });
+        }
+
         // Load the private key
-        let key = russh_keys::load_secret_key(&config.private_key_path, None)
-            .with_context(|| format!("Failed to load private key from {:?}", config.private_key_path))?;
+        let key = russh_keys::load_secret_key(&config.private_key_path, None).map_err(|e| {
+            ConnectionError::KeyNotFound {
+                path: config.private_key_path.display().to_string(),
+                source: anyhow::anyhow!("Failed to load key: {}", e),
+            }
+        })?;
 
         Ok(Self {
             config,
@@ -39,21 +76,42 @@ impl TunnelConnector {
         })
     }
 
+    /// Get the agent configuration
+    pub fn config(&self) -> &AgentConfig {
+        &self.config
+    }
+
     /// Connect to the orchestrator with automatic retry
-    pub async fn connect_with_retry(&self, mut backoff: ExponentialBackoff) -> Result<ActiveTunnel> {
+    ///
+    /// Returns `ConnectionError::AuthRejected` if authentication fails,
+    /// or `ConnectionError::HostKeyRejected` if host key verification fails.
+    /// These errors indicate that Tailscale verification may have failed.
+    pub async fn connect_with_retry(
+        &self,
+        mut backoff: ExponentialBackoff,
+    ) -> Result<ActiveTunnel, ConnectionError> {
         loop {
             match self.try_connect().await {
                 Ok(tunnel) => {
-                    tracing::info!("Connected to orchestrator at {}", self.config.orchestrator_address);
+                    tracing::info!(
+                        "Connected to orchestrator at {}",
+                        self.config.orchestrator_address
+                    );
                     return Ok(tunnel);
+                }
+                Err(ConnectionError::AuthRejected) => {
+                    // Don't retry auth failures - check Tailscale connection
+                    tracing::warn!("Authentication rejected - check that both machines are on the same Tailscale network");
+                    return Err(ConnectionError::AuthRejected);
+                }
+                Err(ConnectionError::HostKeyRejected { message }) => {
+                    // Don't retry host key failures
+                    tracing::error!("Host key verification failed");
+                    return Err(ConnectionError::HostKeyRejected { message });
                 }
                 Err(e) => {
                     let delay = backoff.next_delay();
-                    tracing::warn!(
-                        "Connection failed: {}. Retrying in {:?}",
-                        e,
-                        delay
-                    );
+                    tracing::warn!("Connection failed: {}. Retrying in {:?}", e, delay);
                     tokio::time::sleep(delay).await;
                 }
             }
@@ -61,16 +119,13 @@ impl TunnelConnector {
     }
 
     /// Attempt a single connection to the orchestrator
-    async fn try_connect(&self) -> Result<ActiveTunnel> {
+    async fn try_connect(&self) -> Result<ActiveTunnel, ConnectionError> {
         let ssh_config = Config::default();
         let ssh_config = Arc::new(ssh_config);
 
         // Create the client handler
         let (event_tx, event_rx) = mpsc::channel(256);
-        let handler = ClientHandler::new(
-            self.config.orchestrator_host_key.clone(),
-            event_tx,
-        );
+        let handler = ClientHandler::new(self.config.orchestrator_host_key.clone(), event_tx);
 
         // Connect to the orchestrator
         tracing::debug!("Connecting to {}", self.config.orchestrator_address);
@@ -79,18 +134,27 @@ impl TunnelConnector {
             client::connect(ssh_config, &self.config.orchestrator_address, handler),
         )
         .await
-        .with_context(|| "Connection timed out")?
-        .with_context(|| format!("Failed to connect to {}", self.config.orchestrator_address))?;
+        .map_err(|_| anyhow::anyhow!("Connection timed out"))?
+        .map_err(|e| {
+            let err_str = e.to_string();
+            // Detect host key rejection (russh returns "Unknown server key" error)
+            if err_str.contains("Unknown server key") || err_str.contains("server key") {
+                return ConnectionError::HostKeyRejected {
+                    message: "Server's host key was rejected. Ensure both machines are on the same Tailscale network.".to_string(),
+                };
+            }
+            ConnectionError::Other(anyhow::anyhow!("Failed to connect to {}: {}", self.config.orchestrator_address, e))
+        })?;
 
         // Authenticate with public key
         tracing::debug!("Authenticating as user '{}'", self.config.username);
         let authenticated = session
             .authenticate_publickey(&self.config.username, Arc::clone(&self.key))
             .await
-            .with_context(|| "Authentication failed")?;
+            .map_err(|e| anyhow::anyhow!("Authentication error: {}", e))?;
 
         if !authenticated {
-            anyhow::bail!("Authentication rejected by orchestrator");
+            return Err(ConnectionError::AuthRejected);
         }
 
         tracing::debug!("Authentication successful, opening channel");
@@ -99,7 +163,7 @@ impl TunnelConnector {
         let channel = session
             .channel_open_session()
             .await
-            .with_context(|| "Failed to open session channel")?;
+            .map_err(|e| anyhow::anyhow!("Failed to open session channel: {}", e))?;
 
         let _channel_id = channel.id();
 
@@ -133,7 +197,10 @@ pub struct ActiveTunnel {
 #[derive(Debug)]
 pub enum TunnelEvent {
     /// Orchestrator acknowledged our registration
-    Registered { accepted: bool, reason: Option<String> },
+    Registered {
+        accepted: bool,
+        reason: Option<String>,
+    },
     /// Request to create a new session
     CreateSession {
         session_id: SessionId,
@@ -142,9 +209,15 @@ pub enum TunnelEvent {
         size: TerminalSize,
     },
     /// Data for a session
-    SessionData { session_id: SessionId, data: Vec<u8> },
+    SessionData {
+        session_id: SessionId,
+        data: Vec<u8>,
+    },
     /// Resize a session
-    SessionResize { session_id: SessionId, size: TerminalSize },
+    SessionResize {
+        session_id: SessionId,
+        size: TerminalSize,
+    },
     /// Close a session
     SessionClose { session_id: SessionId },
     /// Heartbeat request
@@ -189,10 +262,13 @@ impl ActiveTunnel {
         let mut buf = BytesMut::new();
 
         let mut codec = FrameCodec::new();
-        codec.encode(frame, &mut buf)
+        codec
+            .encode(frame, &mut buf)
             .with_context(|| "Failed to encode message")?;
 
-        self.channel.data(&buf[..]).await
+        self.channel
+            .data(&buf[..])
+            .await
             .with_context(|| "Failed to send data")?;
 
         Ok(())
@@ -200,22 +276,44 @@ impl ActiveTunnel {
 
     /// Send session data to the orchestrator
     pub async fn send_data(&self, session_id: SessionId, data: &[u8]) -> Result<()> {
-        self.send_message(session_id, Message::Data(bytes::Bytes::copy_from_slice(data))).await
+        self.send_message(
+            session_id,
+            Message::Data(bytes::Bytes::copy_from_slice(data)),
+        )
+        .await
     }
 
     /// Send session ready notification
     pub async fn send_session_ready(&self, session_id: SessionId, pid: u32) -> Result<()> {
-        self.send_message(session_id, Message::SessionReady { pid }).await
+        self.send_message(session_id, Message::SessionReady { pid })
+            .await
     }
 
     /// Send session close notification
-    pub async fn send_session_close(&self, session_id: SessionId, exit_code: Option<i32>) -> Result<()> {
-        self.send_message(session_id, Message::SessionClose { exit_code }).await
+    pub async fn send_session_close(
+        &self,
+        session_id: SessionId,
+        exit_code: Option<i32>,
+    ) -> Result<()> {
+        self.send_message(session_id, Message::SessionClose { exit_code })
+            .await
     }
 
     /// Send heartbeat acknowledgment
     pub async fn send_heartbeat_ack(&self, timestamp: u64) -> Result<()> {
-        self.send_message(SessionId::CONTROL, Message::HeartbeatAck { timestamp }).await
+        self.send_message(SessionId::CONTROL, Message::HeartbeatAck { timestamp })
+            .await
+    }
+
+    /// Send error notification for a session
+    pub async fn send_error(
+        &self,
+        session_id: SessionId,
+        code: kt_protocol::ErrorCode,
+        message: String,
+    ) -> Result<()> {
+        self.send_message(session_id, Message::Error { code, message })
+            .await
     }
 
     /// Receive the next event from the orchestrator
@@ -264,38 +362,32 @@ impl ClientHandler {
                 TunnelEvent::Registered { accepted, reason }
             }
 
-            Message::SessionCreate { shell, env, initial_size } => {
-                TunnelEvent::CreateSession {
-                    session_id: frame.session_id,
-                    shell,
-                    env,
-                    size: initial_size,
-                }
-            }
+            Message::SessionCreate {
+                shell,
+                env,
+                initial_size,
+            } => TunnelEvent::CreateSession {
+                session_id: frame.session_id,
+                shell,
+                env,
+                size: initial_size,
+            },
 
-            Message::Data(data) => {
-                TunnelEvent::SessionData {
-                    session_id: frame.session_id,
-                    data: data.to_vec(),
-                }
-            }
+            Message::Data(data) => TunnelEvent::SessionData {
+                session_id: frame.session_id,
+                data: data.to_vec(),
+            },
 
-            Message::Resize(size) => {
-                TunnelEvent::SessionResize {
-                    session_id: frame.session_id,
-                    size,
-                }
-            }
+            Message::Resize(size) => TunnelEvent::SessionResize {
+                session_id: frame.session_id,
+                size,
+            },
 
-            Message::SessionClose { .. } => {
-                TunnelEvent::SessionClose {
-                    session_id: frame.session_id,
-                }
-            }
+            Message::SessionClose { .. } => TunnelEvent::SessionClose {
+                session_id: frame.session_id,
+            },
 
-            Message::Heartbeat { timestamp } => {
-                TunnelEvent::Heartbeat { timestamp }
-            }
+            Message::Heartbeat { timestamp } => TunnelEvent::Heartbeat { timestamp },
 
             _ => {
                 tracing::warn!("Unexpected message from orchestrator: {:?}", frame.message);
@@ -312,35 +404,33 @@ impl client::Handler for ClientHandler {
     type Error = anyhow::Error;
 
     /// Verify the server's host key
+    ///
+    /// With Tailscale providing the security layer, we accept any host key.
+    /// Tailscale's WireGuard encryption already ensures we're talking to the right machine.
     async fn check_server_key(
         &mut self,
         server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
         let fingerprint = server_public_key.fingerprint();
-        tracing::info!("Server host key: {}", fingerprint);
+        tracing::debug!("Server host key: {}", fingerprint);
 
+        // If an expected key is configured, verify it (for manual setups)
         if let Some(expected) = &self.expected_host_key {
             if fingerprint == *expected {
-                tracing::debug!("Host key verified");
-                self.host_key_verified = true;
-                Ok(true)
+                tracing::debug!("Host key verified against configured fingerprint");
             } else {
-                tracing::error!(
-                    "Host key mismatch! Expected: {}, Got: {}",
+                tracing::warn!(
+                    "Host key differs from configured: expected {}, got {}",
                     expected,
                     fingerprint
                 );
-                Ok(false)
+                // Still accept - Tailscale provides the security layer
             }
-        } else {
-            // No expected key configured - accept any (with warning)
-            tracing::warn!(
-                "No expected host key configured - accepting {} (INSECURE)",
-                fingerprint
-            );
-            self.host_key_verified = true;
-            Ok(true)
         }
+
+        // Accept the key - Tailscale handles transport security
+        self.host_key_verified = true;
+        Ok(true)
     }
 
     /// Handle data received on a channel

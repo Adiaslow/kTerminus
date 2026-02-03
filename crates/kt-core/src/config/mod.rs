@@ -1,15 +1,23 @@
 //! Configuration management for k-Terminus
 
-mod orchestrator;
 mod agent;
 mod machine;
+mod orchestrator;
 
-pub use orchestrator::{OrchestratorConfig, BackoffConfig};
 pub use agent::AgentConfig;
 pub use machine::MachineProfile;
+pub use orchestrator::{BackoffConfig, OrchestratorConfig};
 
 use crate::error::ConfigError;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+/// Wrapper for loading config files that have [orchestrator] section
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConfigFile {
+    #[serde(default)]
+    pub orchestrator: OrchestratorConfig,
+}
 
 /// Get the default configuration directory
 pub fn default_config_dir() -> PathBuf {

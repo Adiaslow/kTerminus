@@ -112,16 +112,34 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
   // Subscribe to terminal output from backend
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
+    let isMounted = true;
+
+    // Subscribe to the session to receive terminal output events
+    tauri.subscribeSession(sessionId).catch((err) => {
+      console.error("Failed to subscribe to session:", err);
+    });
 
     tauri.onTerminalOutput(sessionId, (data) => {
       if (terminalRef.current) {
         terminalRef.current.write(data);
       }
     }).then((unlisten) => {
-      unsubscribe = unlisten;
+      if (isMounted) {
+        unsubscribe = unlisten;
+      } else {
+        // Component unmounted before we got the unlisten function - call it immediately
+        unlisten();
+      }
     });
 
     return () => {
+      isMounted = false;
+
+      // Unsubscribe from the session
+      tauri.unsubscribeSession(sessionId).catch((err) => {
+        console.error("Failed to unsubscribe from session:", err);
+      });
+
       if (unsubscribe) {
         unsubscribe();
       }

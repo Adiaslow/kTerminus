@@ -1,0 +1,11 @@
+{
+  "name": "k-terminus",
+  "version": "0.1.0",
+  "description": "Seamless multi-machine terminal access",
+  "scripts": {
+    "start": "npm run dev",
+    "dev": "cd apps/kt-desktop && npm run tauri:dev",
+    "build": "cd apps/kt-desktop && npm run tauri:build",
+    "postinstall": "cd apps/kt-desktop && npm install"
+  }
+}

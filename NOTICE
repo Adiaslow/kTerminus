@@ -1,0 +1,26 @@
+ETHICAL USE NOTICE
+
+k-Terminus is designed for legitimate system administration of machines you
+own or have explicit authorization to manage.
+
+INTENDED USE CASES:
+- Managing personal machines across networks
+- Remote development and system administration
+- Accessing home lab servers from anywhere
+- Team collaboration on authorized systems
+
+THIS SOFTWARE SHOULD NOT BE USED FOR:
+- Unauthorized access to computer systems
+- Deploying agents on machines without owner consent
+- Any activity that violates applicable computer access laws
+- Malware distribution or command-and-control of compromised systems
+
+The authors do not condone and are not responsible for any misuse of this
+software. Users are solely responsible for ensuring their use complies with
+all applicable laws and regulations.
+
+Unauthorized access to computer systems is illegal in most jurisdictions,
+including but not limited to:
+- Computer Fraud and Abuse Act (United States)
+- Computer Misuse Act (United Kingdom)
+- Criminal Code sections on unauthorized computer access (Canada, EU, etc.)

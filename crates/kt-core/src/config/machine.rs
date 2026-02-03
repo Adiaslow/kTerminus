@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Profile for a known machine
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MachineProfile {
     /// Human-readable alias for the machine
     pub alias: String,
@@ -32,20 +32,6 @@ pub struct MachineProfile {
     /// Notes/description for this machine
     #[serde(default)]
     pub notes: Option<String>,
-}
-
-impl Default for MachineProfile {
-    fn default() -> Self {
-        Self {
-            alias: String::new(),
-            host_key: None,
-            tags: vec![],
-            default_shell: None,
-            env: HashMap::new(),
-            auto_connect: false,
-            notes: None,
-        }
-    }
 }
 
 impl MachineProfile {

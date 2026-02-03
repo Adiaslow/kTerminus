@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Wire protocol for k-Terminus session multiplexing"
+keywords = ["protocol", "terminal", "multiplexing", "ssh"]
+categories = ["network-programming", "encoding"]
 
 [dependencies]
 bytes.workspace = true

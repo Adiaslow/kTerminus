@@ -80,12 +80,8 @@ mod tests {
 
     #[test]
     fn test_backoff_max() {
-        let mut backoff = ExponentialBackoff::new(
-            Duration::from_secs(30),
-            Duration::from_secs(60),
-            2.0,
-            0.0,
-        );
+        let mut backoff =
+            ExponentialBackoff::new(Duration::from_secs(30), Duration::from_secs(60), 2.0, 0.0);
 
         let d1 = backoff.next_delay();
         let d2 = backoff.next_delay();

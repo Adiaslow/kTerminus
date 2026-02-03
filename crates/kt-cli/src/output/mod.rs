@@ -57,7 +57,7 @@ pub fn format_machines(machines: &[MachineInfo], detailed: bool) -> String {
                 alias: m.alias.clone().unwrap_or_else(|| "-".to_string()),
                 hostname: m.hostname.clone(),
                 os_arch: format!("{}/{}", m.os, m.arch),
-                status: m.status.clone(),
+                status: m.status.to_string(),
                 sessions: m.session_count,
                 connected: m.connected_at.clone().unwrap_or_else(|| "-".to_string()),
                 heartbeat: m.last_heartbeat.clone().unwrap_or_else(|| "-".to_string()),
@@ -76,7 +76,7 @@ pub fn format_machines(machines: &[MachineInfo], detailed: bool) -> String {
                 alias: m.alias.clone().unwrap_or_else(|| "-".to_string()),
                 hostname: m.hostname.clone(),
                 os: m.os.clone(),
-                status: m.status.clone(),
+                status: m.status.to_string(),
                 sessions: m.session_count,
             })
             .collect();
@@ -111,7 +111,10 @@ pub fn format_sessions(sessions: &[SessionInfo]) -> String {
             id: s.id.clone(),
             machine: truncate(&s.machine_id, 12),
             shell: s.shell.clone().unwrap_or_else(|| "default".to_string()),
-            pid: s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string()),
+            pid: s
+                .pid
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "-".to_string()),
             created: s.created_at.clone(),
         })
         .collect();
@@ -123,9 +126,15 @@ pub fn format_sessions(sessions: &[SessionInfo]) -> String {
 pub fn format_status(status: &OrchestratorStatus, detailed: bool) -> String {
     let mut output = String::new();
 
-    output.push_str(&format!("Orchestrator Status: {}\n", if status.running { "Running" } else { "Stopped" }));
+    output.push_str(&format!(
+        "Orchestrator Status: {}\n",
+        if status.running { "Running" } else { "Stopped" }
+    ));
     output.push_str(&format!("Version: {}\n", status.version));
-    output.push_str(&format!("Uptime: {}\n", format_duration(status.uptime_secs)));
+    output.push_str(&format!(
+        "Uptime: {}\n",
+        format_duration(status.uptime_secs)
+    ));
     output.push_str(&format!("Connected Machines: {}\n", status.machine_count));
     output.push_str(&format!("Active Sessions: {}\n", status.session_count));
 

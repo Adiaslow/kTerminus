@@ -14,7 +14,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Adam"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/k-terminus"
+repository = "https://github.com/Adiaslow/kTerminus"
 rust-version = "1.75"
 
 [workspace.dependencies]
@@ -54,12 +54,25 @@ dashmap = "5.5"
 async-trait = "0.1"
 futures = "0.3"
 
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+axum = "0.7"
+tower = "0.4"
+
 # Cryptography (for key handling)
 rand = "0.8"
+sha2 = "0.10"
 
 # Internal crates
 kt-protocol = { path = "crates/kt-protocol" }
 kt-core = { path = "crates/kt-core" }
 kt-orchestrator = { path = "crates/kt-orchestrator" }
 kt-agent = { path = "crates/kt-agent" }
-kt-cli = { path = "crates/kt-cli" }
+k-terminus = { path = "crates/kt-cli" }
+
+# Optimized release profile
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -2,15 +2,18 @@
 
 use anyhow::Result;
 
-use crate::ipc::OrchestratorClient;
+use crate::ipc::{OrchestratorClient, TerminalSession};
 use crate::output::{print_error, print_info, print_success};
 
 /// Execute the connect command - create new session and attach
 pub async fn connect_command(
-    client: &mut OrchestratorClient,
+    client: OrchestratorClient,
     machine: &str,
     shell: Option<&str>,
 ) -> Result<()> {
+    // Need a mutable client for the initial request
+    let mut client = client;
+
     print_info(&format!("Creating session on '{}'...", machine));
 
     // Create session
@@ -25,77 +28,31 @@ pub async fn connect_command(
     print_success(&format!(
         "Session created: {} (PID: {})",
         session.id,
-        session.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string())
+        session
+            .pid
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "pending".to_string())
     ));
 
     // Attach to the session
-    attach_to_session(client, &session.id).await
+    print_info("Attaching to session... (Press Ctrl+] to detach)");
+
+    // Create terminal session and run it
+    let terminal = TerminalSession::new(client, session.id.clone()).await?;
+    terminal.run().await?;
+
+    print_success("Detached from session");
+    Ok(())
 }
 
 /// Attach to an existing session
-pub async fn attach_to_session(
-    _client: &mut OrchestratorClient,
-    session_id: &str,
-) -> Result<()> {
-    use crossterm::{
-        event::{self, Event, KeyCode, KeyModifiers},
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-        ExecutableCommand,
-    };
-    use std::io::{stdout, Write};
-
+pub async fn attach_command(client: OrchestratorClient, session_id: &str) -> Result<()> {
     print_info(&format!("Attaching to session {}...", session_id));
     print_info("Press Ctrl+] to detach");
 
-    // Enter raw mode for terminal passthrough
-    enable_raw_mode()?;
-    let mut stdout = stdout();
-    stdout.execute(EnterAlternateScreen)?;
-
-    // Main event loop for terminal interaction
-    // In a full implementation, this would:
-    // 1. Open a streaming connection to the orchestrator
-    // 2. Forward keyboard input to the session
-    // 3. Display output from the session
-    // 4. Handle resize events
-
-    loop {
-        if event::poll(std::time::Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key_event) => {
-                    // Ctrl+] to detach
-                    if key_event.modifiers.contains(KeyModifiers::CONTROL)
-                        && key_event.code == KeyCode::Char(']')
-                    {
-                        break;
-                    }
-
-                    // In a full implementation, send key to session
-                    // For now, just echo what we receive for testing
-                    match key_event.code {
-                        KeyCode::Char(c) => {
-                            // Would send to session
-                            print!("{}", c);
-                            stdout.flush()?;
-                        }
-                        KeyCode::Enter => {
-                            println!();
-                        }
-                        _ => {}
-                    }
-                }
-                Event::Resize(cols, rows) => {
-                    // In full implementation, send resize to session
-                    tracing::debug!("Terminal resize: {}x{}", cols, rows);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // Restore terminal
-    stdout.execute(LeaveAlternateScreen)?;
-    disable_raw_mode()?;
+    // Create terminal session and run it
+    let terminal = TerminalSession::new(client, session_id.to_string()).await?;
+    terminal.run().await?;
 
     print_success("Detached from session");
     Ok(())

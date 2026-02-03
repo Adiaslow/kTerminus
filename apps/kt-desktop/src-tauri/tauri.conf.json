@@ -34,6 +34,15 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Adiaslow/kTerminus/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAzQTI5NUREN0IyQTk0QjQKUldTMGxDcDczWldpQTlDRGZJUUhqK2hKQjh0ejQxdVUrZEhjREZyVXNSMi9UUjNwN1VESEhGZWYK"
+    }
   }
 }

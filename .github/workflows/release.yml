@@ -1,0 +1,337 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Run tests first - all other jobs depend on this
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Run tests
+        run: cargo test --workspace -- --test-threads=1
+
+  # Publish to crates.io (after tests pass)
+  publish-crates:
+    name: Publish to crates.io
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish kt-protocol
+        run: cargo publish -p kt-protocol --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true  # May already be published
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish kt-core
+        run: cargo publish -p kt-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish kt-orchestrator
+        run: cargo publish -p kt-orchestrator --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Publish kt-agent
+        run: cargo publish -p kt-agent --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish k-terminus
+        run: cargo publish -p k-terminus --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+
+  # Build CLI binaries for all platforms (after tests pass)
+  build-cli:
+    name: Build CLI (${{ matrix.target }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          # Linux
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          # Windows
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} -p k-terminus
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../k-terminus-${{ matrix.target }}.tar.gz k-terminus
+          cd ../../..
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../k-terminus-${{ matrix.target }}.zip k-terminus.exe
+          cd ../../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: k-terminus-${{ matrix.target }}.*
+
+  # Build desktop app for all platforms (after tests pass)
+  build-desktop:
+    name: Build Desktop (${{ matrix.os }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: universal-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install frontend dependencies
+        working-directory: apps/kt-desktop
+        run: pnpm install
+
+      - name: Build desktop app (macOS Universal)
+        if: runner.os == 'macOS'
+        working-directory: apps/kt-desktop
+        run: pnpm tauri build --target universal-apple-darwin
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Build desktop app (Linux/Windows)
+        if: runner.os != 'macOS'
+        working-directory: apps/kt-desktop
+        run: pnpm tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: |
+            apps/kt-desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            apps/kt-desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            apps/kt-desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            apps/kt-desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/kt-desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            apps/kt-desktop/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz
+            apps/kt-desktop/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            apps/kt-desktop/src-tauri/target/release/bundle/msi/*.msi
+            apps/kt-desktop/src-tauri/target/release/bundle/nsis/*.exe
+            apps/kt-desktop/src-tauri/target/release/bundle/nsis/*.nsis.zip
+            apps/kt-desktop/src-tauri/target/release/bundle/nsis/*.nsis.zip.sig
+
+  # Create GitHub release with all artifacts
+  release:
+    name: Create Release
+    needs: [build-cli, build-desktop, publish-crates]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+
+          # CLI binaries
+          cp artifacts/cli-*/* release/ || true
+
+          # Desktop apps
+          cp artifacts/desktop-macos/*.dmg release/ 2>/dev/null || true
+          cp artifacts/desktop-macos/*.app.tar.gz release/ 2>/dev/null || true
+          cp artifacts/desktop-macos/*.app.tar.gz.sig release/ 2>/dev/null || true
+          cp artifacts/desktop-linux/*.deb release/ 2>/dev/null || true
+          cp artifacts/desktop-linux/*.AppImage release/ 2>/dev/null || true
+          cp artifacts/desktop-linux/*.AppImage.tar.gz release/ 2>/dev/null || true
+          cp artifacts/desktop-linux/*.AppImage.tar.gz.sig release/ 2>/dev/null || true
+          cp artifacts/desktop-windows/*.msi release/ 2>/dev/null || true
+          cp artifacts/desktop-windows/*.exe release/ 2>/dev/null || true
+          cp artifacts/desktop-windows/*.nsis.zip release/ 2>/dev/null || true
+          cp artifacts/desktop-windows/*.nsis.zip.sig release/ 2>/dev/null || true
+
+          ls -la release/
+
+      - name: Generate updater manifest
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO="Adiaslow/kTerminus"
+
+          # Read signatures
+          MAC_SIG=$(cat release/*.app.tar.gz.sig 2>/dev/null || echo "")
+          LINUX_SIG=$(cat release/*.AppImage.tar.gz.sig 2>/dev/null || echo "")
+          WIN_SIG=$(cat release/*.nsis.zip.sig 2>/dev/null || echo "")
+
+          # Generate latest.json for Tauri updater
+          cat > release/latest.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "See https://github.com/$REPO/releases/tag/$GITHUB_REF_NAME for release notes",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-universal": {
+                "signature": "$MAC_SIG",
+                "url": "https://github.com/$REPO/releases/download/$GITHUB_REF_NAME/k-Terminus.app.tar.gz"
+              },
+              "linux-x86_64": {
+                "signature": "$LINUX_SIG",
+                "url": "https://github.com/$REPO/releases/download/$GITHUB_REF_NAME/k-Terminus.AppImage.tar.gz"
+              },
+              "windows-x86_64": {
+                "signature": "$WIN_SIG",
+                "url": "https://github.com/$REPO/releases/download/$GITHUB_REF_NAME/k-Terminus.nsis.zip"
+              }
+            }
+          }
+          EOF
+
+          cat release/latest.json
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Update Homebrew formula
+  homebrew:
+    name: Update Homebrew
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: k-terminus
+          homebrew-tap: Adiaslow/homebrew-tap
+          download-url: https://github.com/Adiaslow/kTerminus/releases/download/${{ github.ref_name }}/k-terminus-x86_64-apple-darwin.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        continue-on-error: true

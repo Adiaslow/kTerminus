@@ -14,9 +14,6 @@ pub struct OrchestratorConfig {
     /// Address to bind the SSH server to
     pub bind_address: String,
 
-    /// Paths to authorized public keys
-    pub auth_keys: Vec<PathBuf>,
-
     /// Heartbeat interval in seconds
     #[serde(with = "humantime_serde")]
     pub heartbeat_interval: Duration,
@@ -35,14 +32,17 @@ pub struct OrchestratorConfig {
     #[serde(default)]
     pub machines: HashMap<String, MachineProfile>,
 
-    /// IPC socket path (Unix) or pipe name (Windows)
-    pub ipc_path: Option<PathBuf>,
+    /// IPC port for CLI/desktop communication (localhost only)
+    pub ipc_port: u16,
 
     /// Maximum number of concurrent connections
     pub max_connections: Option<u32>,
 
     /// Maximum sessions per machine
     pub max_sessions_per_machine: Option<u32>,
+
+    /// Tailscale hostname (auto-detected during setup)
+    pub tailscale_hostname: Option<String>,
 }
 
 impl Default for OrchestratorConfig {
@@ -51,35 +51,23 @@ impl Default for OrchestratorConfig {
 
         Self {
             bind_address: "0.0.0.0:2222".to_string(),
-            auth_keys: vec![],
             heartbeat_interval: Duration::from_secs(30),
             heartbeat_timeout: Duration::from_secs(90),
             host_key_path: config_dir.join("host_key"),
             backoff: BackoffConfig::default(),
             machines: HashMap::new(),
-            ipc_path: None,
+            ipc_port: 22230,
             max_connections: None,
             max_sessions_per_machine: None,
+            tailscale_hostname: None,
         }
     }
 }
 
 impl OrchestratorConfig {
-    /// Get the IPC socket path, using default if not set
-    pub fn ipc_socket_path(&self) -> PathBuf {
-        self.ipc_path.clone().unwrap_or_else(|| {
-            #[cfg(unix)]
-            {
-                std::env::var("XDG_RUNTIME_DIR")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| PathBuf::from("/tmp"))
-                    .join("k-terminus.sock")
-            }
-            #[cfg(windows)]
-            {
-                PathBuf::from(r"\\.\pipe\k-terminus")
-            }
-        })
+    /// Get the IPC address (localhost:port)
+    pub fn ipc_address(&self) -> String {
+        format!("127.0.0.1:{}", self.ipc_port)
     }
 }
 

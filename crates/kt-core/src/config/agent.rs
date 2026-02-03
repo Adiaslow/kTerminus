@@ -10,7 +10,11 @@ use super::orchestrator::BackoffConfig;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
-    /// Orchestrator address to connect to
+    /// Orchestrator address to connect to.
+    ///
+    /// **Important**: Use a Tailscale hostname (e.g., `my-laptop.tailnet.ts.net:2222`),
+    /// NOT an IP address. Tailscale hostnames remain stable regardless of network
+    /// changes, while IP addresses may change when networks change.
     pub orchestrator_address: String,
 
     /// Path to the private key for authentication
@@ -51,8 +55,9 @@ impl Default for AgentConfig {
             orchestrator_address: "localhost:2222".to_string(),
             private_key_path: dirs::home_dir()
                 .unwrap_or_default()
-                .join(".ssh")
-                .join("id_ed25519"),
+                .join(".config")
+                .join("k-terminus")
+                .join("agent_key"),
             orchestrator_host_key: None,
             username: whoami::username(),
             alias: None,

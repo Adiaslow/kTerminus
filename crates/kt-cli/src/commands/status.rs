@@ -6,10 +6,7 @@ use crate::ipc::OrchestratorClient;
 use crate::output::{format_status, print_error};
 
 /// Execute the status command
-pub async fn status_command(
-    client: &mut OrchestratorClient,
-    detailed: bool,
-) -> Result<()> {
+pub async fn status_command(client: &mut OrchestratorClient, detailed: bool) -> Result<()> {
     let status = match client.status().await {
         Ok(s) => s,
         Err(e) => {

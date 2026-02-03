@@ -20,7 +20,10 @@ pub struct Frame {
 impl Frame {
     /// Create a new frame
     pub fn new(session_id: SessionId, message: Message) -> Self {
-        Self { session_id, message }
+        Self {
+            session_id,
+            message,
+        }
     }
 }
 
@@ -117,9 +120,9 @@ impl Encoder<Frame> for FrameCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::frame::HEADER_SIZE;
     use crate::message::TerminalSize;
+    use bytes::Bytes;
 
     #[test]
     fn test_codec_roundtrip() {

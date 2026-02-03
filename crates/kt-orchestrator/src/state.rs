@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use kt_core::config::OrchestratorConfig;
 
-use crate::auth::AuthorizedKeys;
+use crate::auth::TailscaleVerifier;
 use crate::connection::ConnectionPool;
 use crate::session::SessionManager;
 
@@ -16,28 +16,18 @@ pub struct OrchestratorState {
     pub connections: Arc<ConnectionPool>,
     /// Session manager
     pub sessions: Arc<SessionManager>,
-    /// Authorized keys
-    pub auth: Arc<AuthorizedKeys>,
+    /// Tailscale peer verifier
+    pub tailscale: Arc<TailscaleVerifier>,
 }
 
 impl OrchestratorState {
-    /// Create new orchestrator state with default auth
+    /// Create new orchestrator state
     pub fn new(config: OrchestratorConfig) -> Self {
         Self {
             config,
             connections: Arc::new(ConnectionPool::new()),
             sessions: Arc::new(SessionManager::new()),
-            auth: Arc::new(AuthorizedKeys::new()),
-        }
-    }
-
-    /// Create new orchestrator state with provided authorized keys
-    pub fn with_auth(config: OrchestratorConfig, auth: AuthorizedKeys) -> Self {
-        Self {
-            config,
-            connections: Arc::new(ConnectionPool::new()),
-            sessions: Arc::new(SessionManager::new()),
-            auth: Arc::new(auth),
+            tailscale: Arc::new(TailscaleVerifier::new()),
         }
     }
 

@@ -22,7 +22,7 @@ pub enum SessionState {
 }
 
 /// Configuration for creating a new session
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SessionConfig {
     /// Shell to spawn (None = default)
     pub shell: Option<String>,
@@ -32,17 +32,6 @@ pub struct SessionConfig {
     pub size: TerminalSize,
     /// Optional session name/label
     pub name: Option<String>,
-}
-
-impl Default for SessionConfig {
-    fn default() -> Self {
-        Self {
-            shell: None,
-            env: vec![],
-            size: TerminalSize::default(),
-            name: None,
-        }
-    }
 }
 
 /// Abstraction over a terminal session

@@ -83,15 +83,24 @@ impl SshServer {
         let config = Arc::clone(&self.config.ssh_config);
         let state = Arc::clone(&self.state);
         let event_tx = self.event_tx.clone();
-        let cancel = self.cancel.clone();
+        let global_cancel = self.cancel.clone();
+
+        // Create a cancellation token for this specific connection
+        let connection_cancel = CancellationToken::new();
 
         // Spawn a task to handle this connection
         tokio::spawn(async move {
-            let handler = ClientHandler::new(state, event_tx);
+            let handler = ClientHandler::new(state, event_tx, connection_cancel.clone(), peer_addr);
 
             let result = tokio::select! {
-                _ = cancel.cancelled() => {
-                    tracing::debug!("Connection handler cancelled for {}", peer_addr);
+                // Global shutdown
+                _ = global_cancel.cancelled() => {
+                    tracing::debug!("Connection handler cancelled (global) for {}", peer_addr);
+                    return;
+                }
+                // Per-connection disconnect
+                _ = connection_cancel.cancelled() => {
+                    tracing::info!("Connection disconnected by request for {}", peer_addr);
                     return;
                 }
                 result = russh::server::run_stream(config, socket, handler) => result
@@ -126,16 +135,42 @@ pub async fn load_or_generate_host_key(path: &std::path::Path) -> Result<KeyPair
                 .with_context(|| format!("Failed to create directory {:?}", parent))?;
         }
 
-        // Generate a new Ed25519 key
-        let key = KeyPair::generate_ed25519()
-            .ok_or_else(|| anyhow::anyhow!("Failed to generate Ed25519 key"))?;
+        // Generate a new Ed25519 key using ssh-key crate
+        let private_key =
+            ssh_key::PrivateKey::random(&mut rand::thread_rng(), ssh_key::Algorithm::Ed25519)
+                .map_err(|e| anyhow::anyhow!("Failed to generate Ed25519 key: {}", e))?;
 
-        // Save to file
-        // Note: russh_keys doesn't have a direct save function, so we'll use a workaround
-        // For now, we'll just use the key in memory
-        // TODO: Implement proper key persistence
+        // Encode to OpenSSH format and save
+        let openssh_pem = private_key
+            .to_openssh(ssh_key::LineEnding::LF)
+            .map_err(|e| anyhow::anyhow!("Failed to encode key: {}", e))?;
 
-        tracing::warn!("Host key persistence not yet implemented - key will change on restart");
+        // Write to file with restricted permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600) // Owner read/write only
+                .open(path)
+                .with_context(|| format!("Failed to create key file {:?}", path))?;
+            std::io::Write::write_all(&mut file, openssh_pem.as_bytes())
+                .with_context(|| "Failed to write key file")?;
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::fs::write(path, openssh_pem.as_bytes())
+                .await
+                .with_context(|| format!("Failed to write key file {:?}", path))?;
+        }
+
+        tracing::info!("Generated and saved new host key to {:?}", path);
+
+        // Load it back using russh_keys for compatibility
+        let key = russh_keys::load_secret_key(path, None)
+            .with_context(|| format!("Failed to load newly generated key from {:?}", path))?;
 
         Ok(key)
     }

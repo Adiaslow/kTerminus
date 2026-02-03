@@ -60,7 +60,10 @@ impl PtyManager {
     }
 
     /// Create a new PTY manager with custom defaults
-    pub fn with_defaults(default_shell: Option<String>, default_env: Vec<(String, String)>) -> Self {
+    pub fn with_defaults(
+        default_shell: Option<String>,
+        default_env: Vec<(String, String)>,
+    ) -> Self {
         let mut env = vec![("TERM".to_string(), "xterm-256color".to_string())];
         env.extend(default_env);
 

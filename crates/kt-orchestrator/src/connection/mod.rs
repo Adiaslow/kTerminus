@@ -1,7 +1,7 @@
 //! Connection management
 
-mod pool;
 mod health;
+mod pool;
 
-pub use pool::ConnectionPool;
 pub use health::HealthMonitor;
+pub use pool::{AgentCommand, ConnectionPool, TunnelConnection};

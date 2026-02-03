@@ -3,5 +3,5 @@
 mod connector;
 mod reconnect;
 
-pub use connector::{ActiveTunnel, TunnelConnector, TunnelEvent};
+pub use connector::{ActiveTunnel, ConnectionError, TunnelConnector, TunnelEvent};
 pub use reconnect::ExponentialBackoff;

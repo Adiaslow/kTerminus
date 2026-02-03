@@ -1,10 +1,13 @@
 [package]
-name = "kt-cli"
+name = "k-terminus"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "k-Terminus command-line interface"
+description = "Distributed terminal session manager - single binary for orchestrator, agent, and CLI"
+repository = "https://github.com/Adiaslow/kTerminus"
+keywords = ["terminal", "ssh", "remote", "session", "distributed"]
+categories = ["command-line-utilities", "network-programming"]
 
 [[bin]]
 name = "k-terminus"
@@ -13,6 +16,10 @@ path = "src/main.rs"
 [dependencies]
 kt-protocol.workspace = true
 kt-core.workspace = true
+kt-orchestrator.workspace = true
+kt-agent.workspace = true
+
+tokio-util = { workspace = true }
 
 tokio.workspace = true
 clap.workspace = true
@@ -26,8 +33,13 @@ tracing-subscriber.workspace = true
 crossterm = "0.27"
 tabled = "0.15"
 whoami = "1.5"
+reqwest.workspace = true
+gethostname = "0.4"
+toml = "0.8"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 assert_cmd = "2.0"
 predicates = "3.1"
+tempfile = "3.10"
+dirs = "5.0"

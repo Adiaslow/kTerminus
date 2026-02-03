@@ -31,6 +31,10 @@ export async function getMachine(id: string): Promise<Machine> {
   return invoke("get_machine", { id });
 }
 
+export async function disconnectMachine(id: string): Promise<void> {
+  return invoke("disconnect_machine", { id });
+}
+
 // Session commands
 export async function listSessions(machineId?: string): Promise<Session[]> {
   return invoke("list_sessions", { machineId });
@@ -57,6 +61,15 @@ export async function terminalClose(sessionId: string): Promise<void> {
   return invoke("terminal_close", { sessionId });
 }
 
+// Session subscription commands
+export async function subscribeSession(sessionId: string): Promise<void> {
+  return invoke("subscribe_session", { sessionId });
+}
+
+export async function unsubscribeSession(sessionId: string): Promise<void> {
+  return invoke("unsubscribe_session", { sessionId });
+}
+
 // Event listeners
 export function onMachineEvent(callback: (event: MachineEvent) => void): Promise<UnlistenFn> {
   return listen<MachineEvent>("machine-event", (event) => callback(event.payload));
@@ -70,9 +83,12 @@ export function onTerminalOutput(
   sessionId: string,
   callback: (data: Uint8Array) => void
 ): Promise<UnlistenFn> {
-  return listen<TerminalOutputEvent>(`terminal-output:${sessionId}`, (event) =>
-    callback(event.payload.data)
-  );
+  return listen<TerminalOutputEvent>(`terminal-output:${sessionId}`, (event) => {
+    // Data comes as a JSON array of numbers from Rust Vec<u8>, convert to Uint8Array
+    const data = event.payload.data;
+    const bytes = Array.isArray(data) ? new Uint8Array(data) : data;
+    callback(bytes);
+  });
 }
 
 export function onOrchestratorStatus(

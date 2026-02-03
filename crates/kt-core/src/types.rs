@@ -113,6 +113,9 @@ mod tests {
     #[test]
     fn test_connection_status_display() {
         assert_eq!(format!("{}", ConnectionStatus::Connected), "connected");
-        assert_eq!(format!("{}", ConnectionStatus::Disconnected), "disconnected");
+        assert_eq!(
+            format!("{}", ConnectionStatus::Disconnected),
+            "disconnected"
+        );
     }
 }

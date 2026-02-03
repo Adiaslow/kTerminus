@@ -82,6 +82,7 @@ function MachineItem({
 }) {
   const addTab = useTerminalsStore((s) => s.addTab);
   const addSession = useTerminalsStore((s) => s.addSession);
+  const removeMachine = useMachinesStore((s) => s.removeMachine);
 
   const handleConnect = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -98,6 +99,17 @@ function MachineItem({
       });
     } catch (err) {
       console.error("Failed to create session:", err);
+    }
+  };
+
+  const handleDisconnect = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    try {
+      await tauri.disconnectMachine(machine.id);
+      removeMachine(machine.id);
+    } catch (err) {
+      console.error("Failed to disconnect machine:", err);
     }
   };
 
@@ -134,27 +146,51 @@ function MachineItem({
         </div>
       </div>
 
-      {/* Connect button */}
+      {/* Action buttons */}
       {isConnected && (
-        <button
-          onClick={handleConnect}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-terminal-blue/20 transition-all"
-          title="New session"
-        >
-          <svg
-            className="w-4 h-4 text-terminal-blue"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+          {/* New session button */}
+          <button
+            onClick={handleConnect}
+            className="p-1 rounded hover:bg-terminal-blue/20"
+            title="New session"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </button>
+            <svg
+              className="w-4 h-4 text-terminal-blue"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+          </button>
+
+          {/* Disconnect button */}
+          <button
+            onClick={handleDisconnect}
+            className="p-1 rounded hover:bg-terminal-red/20"
+            title="Disconnect"
+          >
+            <svg
+              className="w-4 h-4 text-terminal-red"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
       )}
     </div>
   );
