@@ -2,6 +2,13 @@
 //!
 //! These tests run the actual orchestrator and agent to verify
 //! the full system works correctly.
+//!
+//! **These tests are ignored by default** because they require:
+//! - ssh-keygen available in PATH
+//! - Available network ports
+//! - No other orchestrator running
+//!
+//! Run with: `cargo test --test e2e_test -- --ignored`
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
@@ -187,6 +194,7 @@ fn wait_for_ipc(port: u16, timeout: Duration) -> bool {
 }
 
 #[test]
+#[ignore] // Requires full environment - run with: cargo test -- --ignored
 fn test_e2e_orchestrator_starts_and_responds_to_ping() {
     let mut orchestrator = TestOrchestrator::start();
 
@@ -210,6 +218,7 @@ fn test_e2e_orchestrator_starts_and_responds_to_ping() {
 }
 
 #[test]
+#[ignore]
 fn test_e2e_orchestrator_status() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -233,6 +242,7 @@ fn test_e2e_orchestrator_status() {
 }
 
 #[test]
+#[ignore]
 fn test_e2e_orchestrator_list_machines_empty() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -258,6 +268,7 @@ fn test_e2e_orchestrator_list_machines_empty() {
 }
 
 #[test]
+#[ignore]
 fn test_e2e_orchestrator_list_sessions_empty() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -285,6 +296,7 @@ fn test_e2e_orchestrator_list_sessions_empty() {
 }
 
 #[test]
+#[ignore]
 fn test_e2e_orchestrator_shutdown() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -313,6 +325,7 @@ fn test_e2e_orchestrator_shutdown() {
 }
 
 #[test]
+#[ignore]
 fn test_e2e_agent_connects_to_orchestrator() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -362,6 +375,7 @@ fn test_e2e_agent_connects_to_orchestrator() {
 }
 
 #[test]
+#[ignore]
 fn test_e2e_full_session_flow() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
