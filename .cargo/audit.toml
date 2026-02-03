@@ -1,0 +1,12 @@
+# Cargo audit configuration
+# https://github.com/rustsec/rustsec/tree/main/cargo-audit
+
+[advisories]
+# Advisories to ignore (with justification)
+ignore = [
+    # RSA timing side-channel (Marvin Attack)
+    # We use Ed25519 keys exclusively, not RSA. This vulnerability only affects
+    # RSA operations. It's a transitive dependency from russh with no fix available.
+    # Tracking: https://github.com/RustCrypto/RSA/issues/19
+    "RUSTSEC-2023-0071",
+]
