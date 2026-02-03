@@ -156,6 +156,34 @@ When contributing:
 4. **Review crypto usage** - Don't roll your own; use established libraries
 5. **Consider timing attacks** - Use constant-time comparison for secrets
 
+## Cryptographic Choices
+
+### Ed25519 Only
+
+k-Terminus exclusively uses **Ed25519** keys for all SSH operations:
+
+- Host keys: Ed25519
+- Agent keys: Ed25519
+- RSA keys are **not supported**
+
+This is enforced in `setup.rs` which explicitly passes `-t ed25519` to ssh-keygen.
+
+### Known Advisory: RUSTSEC-2023-0071
+
+The `rsa` crate appears in our dependency tree:
+```
+russh → ssh-key → rsa
+```
+
+This advisory describes a timing side-channel attack on RSA decryption (Marvin Attack). **This does not affect k-Terminus** because:
+
+1. We never generate RSA keys
+2. We never accept RSA keys for authentication
+3. The RSA code paths are never executed
+4. The `ssh-key` crate includes RSA support for compatibility, but we don't use it
+
+This advisory is explicitly ignored in `.cargo/audit.toml` with documentation.
+
 ## Dependencies
 
 Security-critical dependencies:
@@ -163,8 +191,8 @@ Security-critical dependencies:
 | Crate | Purpose | Notes |
 |-------|---------|-------|
 | `russh` | SSH protocol | Pure Rust implementation |
-| `russh-keys` | SSH key handling | Ed25519 keys |
-| `ssh-key` | Key generation | CSPRNG-based |
+| `russh-keys` | SSH key handling | Ed25519 keys only |
+| `ssh-key` | Key parsing | Multi-algorithm support (we use Ed25519 only) |
 | Tailscale | Network/identity | External dependency |
 
 All dependencies are regularly audited via `cargo audit`.
