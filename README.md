@@ -4,6 +4,30 @@
 
 Manage terminal sessions across all your machines from one place - no manual SSH key copying, no port forwarding, no complex configuration.
 
+## Why k-Terminus?
+
+I'm a computational researcher working across three labs, two universities, and a biotech company. Nine machines. Different operating systems. Different networks. Different buildings. One is underground in a vivarium.
+
+Every day I commute 1-2 hours each way with a 50 lb backpack—two laptops, because company policy requires work to run on their hardware.
+
+One machine lives past an elevator, four badge doors, an air shower, and three airlocks. When the IP changes, I make that entire journey just to read it off the screen. For four numbers.
+
+I travel constantly—campus, coffee shops, hotels, home—each network with its own firewall blocking what I need. I work with unpublished research and biotech data under NDA, so "just open the port" isn't an option. And enterprise tools with per-seat pricing? Not in my budget.
+
+**So I built k-Terminus.**
+
+Tailscale gives me one secure network across all my machines—stable hostnames, no IP hunting, connections that work through any firewall. k-Terminus gives me one terminal to manage them all.
+
+Now the vivarium machine is just `vivarium-server`. The work laptop stays home while I access it from anywhere. My backpack is lighter.
+
+It's **free**, because researchers shouldn't have to choose between tools and groceries.
+
+It's **secure**—WireGuard encryption, SSO authentication, zero open ports to the internet. Tailscale solved the hard problems; k-Terminus just requires you to be on the same tailnet. No passwords. No certificates. No exposed attack surface.
+
+It's **open source**, because I'm a scientist and I believe knowledge should be shared.
+
+**Tailscale (free) + k-Terminus (free) = secure access to all your machines, from anywhere, for $0.**
+
 ## How It Works
 
 ```
