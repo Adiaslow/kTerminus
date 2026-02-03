@@ -160,5 +160,8 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
 
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
       - name: Run audit
-        run: cargo audit --file Cargo.lock
+        run: cargo audit
