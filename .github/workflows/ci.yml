@@ -44,10 +44,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace --exclude kt-desktop
 
       - name: Run tests
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo test --workspace --exclude kt-desktop -- --test-threads=1
 
   # Clippy and formatting (run once on Linux)
   lint:
@@ -82,7 +82,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --exclude kt-desktop -- -D warnings
 
   # Build desktop app on all platforms
   desktop:
