@@ -141,6 +141,7 @@ jobs:
 
       - name: Build desktop app
         working-directory: apps/kt-desktop
+        shell: bash
         run: pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
   # Security audit
