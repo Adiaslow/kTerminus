@@ -96,7 +96,12 @@ impl ClientHandler {
         cancel: tokio_util::sync::CancellationToken,
         peer_addr: SocketAddr,
     ) -> Self {
-        // Create command channel for this connection
+        // Create command channel for this connection.
+        // Capacity of 256 provides buffer for burst traffic while preventing
+        // unbounded memory growth. When the channel is full:
+        // - Async sends (.send().await) will wait for capacity
+        // - Non-blocking sends (try_send) will fail and should be logged
+        // The health monitor uses try_send and logs backpressure conditions.
         let (command_tx, command_rx) = mpsc::channel(256);
 
         Self {
@@ -116,14 +121,17 @@ impl ClientHandler {
         }
     }
 
-    /// Get the machine ID (panics if not authenticated)
-    fn machine_id(&self) -> &MachineId {
-        self.machine_id.as_ref().expect("not authenticated")
+    /// Get the machine ID if authenticated
+    fn machine_id(&self) -> Option<&MachineId> {
+        self.machine_id.as_ref()
     }
 
     /// Process a decoded frame
     async fn handle_frame(&mut self, frame: Frame, session: &mut Session) {
-        let machine_id = self.machine_id().clone();
+        let Some(machine_id) = self.machine_id().cloned() else {
+            tracing::warn!("Received frame before authentication, ignoring");
+            return;
+        };
 
         match frame.message {
             Message::Register {
@@ -131,16 +139,57 @@ impl ClientHandler {
                 hostname,
                 os,
                 arch,
+                version,
             } => {
+                // Validate protocol version
+                let agent_version = version.as_deref().unwrap_or("unknown");
+                let expected_major = kt_protocol::PROTOCOL_VERSION
+                    .split('.')
+                    .next()
+                    .unwrap_or("1");
+
+                // Check major version compatibility (reject if major version differs)
+                let agent_major = agent_version.split('.').next().unwrap_or("1");
+                if agent_major != expected_major && agent_version != "unknown" {
+                    tracing::warn!(
+                        "Rejecting agent {} with incompatible protocol version {} (expected {})",
+                        reported_id,
+                        agent_version,
+                        kt_protocol::PROTOCOL_VERSION
+                    );
+                    let ack = Message::RegisterAck {
+                        accepted: false,
+                        reason: Some(format!(
+                            "Protocol version mismatch: agent v{}, orchestrator v{}",
+                            agent_version,
+                            kt_protocol::PROTOCOL_VERSION
+                        )),
+                    };
+                    self.send_message(session, SessionId::CONTROL, ack);
+                    return;
+                }
+
+                // For loopback connections, use the reported alias as part of the machine ID
+                // This allows multiple local agents with different aliases
+                let effective_machine_id = if self.peer_addr.ip().is_loopback() {
+                    // Use "local-{alias}" for local connections to support multiple agents
+                    let new_id = MachineId::new(format!("local-{}", reported_id));
+                    self.machine_id = Some(new_id.clone());
+                    new_id
+                } else {
+                    machine_id
+                };
+
                 tracing::info!(
-                    "Machine registered: {} ({}) - {} {}",
-                    reported_id,
+                    "Machine registered: {} ({}) - {} {} (protocol v{})",
+                    effective_machine_id,
                     hostname,
                     os,
-                    arch
+                    arch,
+                    agent_version
                 );
 
-                self.alias = Some(hostname.clone());
+                self.alias = Some(reported_id.clone());
 
                 // Send registration acknowledgment
                 let ack = Message::RegisterAck {
@@ -150,13 +199,17 @@ impl ClientHandler {
                 self.send_message(session, SessionId::CONTROL, ack);
 
                 // Take the command_tx to pass to the orchestrator
-                let command_tx = self.command_tx.take().expect("command_tx already taken");
+                // Use if-let pattern to avoid panic if command_tx was already taken
+                let Some(command_tx) = self.command_tx.take() else {
+                    tracing::warn!("command_tx already taken for machine {}, skipping registration event", effective_machine_id);
+                    return;
+                };
 
                 // Notify orchestrator with command channel
                 let _ = self
                     .event_tx
                     .send(ConnectionEvent::MachineConnected {
-                        machine_id,
+                        machine_id: effective_machine_id,
                         alias: reported_id,
                         hostname,
                         os,
@@ -219,13 +272,13 @@ impl ClientHandler {
             Message::HeartbeatAck { timestamp } => {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .expect("system time before UNIX epoch")
                     .as_millis() as u64;
                 let latency = now.saturating_sub(timestamp);
                 tracing::trace!("Heartbeat ack from {}, latency={}ms", machine_id, latency);
 
                 // Record heartbeat on the connection
-                if let Some(conn) = self.state.connections.get(&machine_id) {
+                if let Some(conn) = self.state.coordinator.connections.get(&machine_id) {
                     conn.record_heartbeat();
                 }
             }
@@ -275,7 +328,10 @@ impl ClientHandler {
             return;
         };
 
-        let machine_id = self.machine_id().clone();
+        let Some(machine_id) = self.machine_id().cloned() else {
+            tracing::error!("Cannot start command processor: not authenticated");
+            return;
+        };
 
         let task_handle = tokio::spawn(async move {
             tracing::debug!("Command processor started for {}", machine_id);
@@ -315,6 +371,18 @@ impl Drop for ClientHandler {
         if let Some(handle) = self.command_processor_handle.take() {
             handle.abort();
             tracing::debug!("Aborted command processor task on handler drop");
+        }
+
+        // Send disconnect event if this was a registered machine
+        if let Some(machine_id) = self.machine_id.take() {
+            tracing::info!("Machine {} disconnected (handler dropped)", machine_id);
+            // Use try_send since Drop is synchronous - if channel is full, the
+            // health monitor will eventually clean up the stale connection
+            if let Err(e) = self.event_tx.try_send(ConnectionEvent::MachineDisconnected {
+                machine_id,
+            }) {
+                tracing::warn!("Failed to send disconnect event: {}", e);
+            }
         }
     }
 }

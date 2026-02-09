@@ -3,15 +3,17 @@
 //! These tests run the actual orchestrator and agent to verify
 //! the full system works correctly.
 //!
-//! **These tests are ignored by default** because they require:
+//! These tests require:
 //! - ssh-keygen available in PATH
 //! - Available network ports
-//! - No other orchestrator running
+//! - No other orchestrator running on the test ports
 //!
-//! Run with: `cargo test --test e2e_test -- --ignored`
+//! Tests that only use the orchestrator run in CI.
+//! Tests that require Tailscale (agent connection) are marked with #[ignore].
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
@@ -83,7 +85,10 @@ impl TestOrchestrator {
         let process = Command::new(env!("CARGO_BIN_EXE_k-terminus"))
             .args([
                 "--config",
-                config.path.to_str().unwrap(),
+                config
+                    .path
+                    .to_str()
+                    .expect("Config path contains invalid UTF-8 characters"),
                 "serve",
                 "--foreground",
             ])
@@ -128,7 +133,7 @@ impl TestAgent {
     fn start(orchestrator_addr: &str) -> Self {
         // Use the default agent key from ~/.config/k-terminus/
         let home_key = dirs::home_dir()
-            .unwrap()
+            .expect("Could not determine home directory - check HOME environment variable")
             .join(".config/k-terminus/agent_key");
 
         eprintln!("Starting agent connecting to {}", orchestrator_addr);
@@ -138,7 +143,12 @@ impl TestAgent {
         cmd.args(["join", orchestrator_addr, "--foreground"]);
 
         if home_key.exists() {
-            cmd.args(["--key", home_key.to_str().unwrap()]);
+            cmd.args([
+                "--key",
+                home_key
+                    .to_str()
+                    .expect("Home key path contains invalid UTF-8 characters"),
+            ]);
         }
 
         let process = cmd
@@ -163,8 +173,22 @@ impl Drop for TestAgent {
     }
 }
 
-/// Send an IPC request and get response
-fn ipc_request(port: u16, request: &str) -> Result<String, std::io::Error> {
+/// Read the IPC authentication token from the default location
+fn read_auth_token() -> Result<String, std::io::Error> {
+    let token_path = get_default_token_path()?;
+    std::fs::read_to_string(token_path).map(|s| s.trim().to_string())
+}
+
+/// Get the default token path (matches kt_core::ipc_auth::default_token_path)
+fn get_default_token_path() -> Result<PathBuf, std::io::Error> {
+    let config_dir = dirs::config_dir()
+        .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Could not find config directory"))?;
+    Ok(config_dir.join("k-terminus").join("ipc_auth_token"))
+}
+
+/// Send an IPC request and get response (without authentication)
+fn ipc_request_raw(port: u16, request: &str) -> Result<String, std::io::Error> {
     let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -181,6 +205,136 @@ fn ipc_request(port: u16, request: &str) -> Result<String, std::io::Error> {
     Ok(response)
 }
 
+/// Send an IPC request with authentication
+fn ipc_request(port: u16, request: &str) -> Result<String, std::io::Error> {
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+
+    let mut reader = BufReader::new(stream.try_clone()?);
+
+    // First, authenticate
+    let token = read_auth_token()?;
+    let auth_request = format!(r#"{{"type":"authenticate","token":"{}"}}"#, token);
+    writeln!(stream, "{}", auth_request)?;
+    stream.flush()?;
+
+    let mut auth_response = String::new();
+    reader.read_line(&mut auth_response)?;
+
+    if !auth_response.contains("authenticated") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("Authentication failed: {}", auth_response),
+        ));
+    }
+
+    // Now send the actual request
+    writeln!(stream, "{}", request)?;
+    stream.flush()?;
+
+    let mut response = String::new();
+    reader.read_line(&mut response)?;
+
+    Ok(response)
+}
+
+/// Persistent IPC client that maintains a connection across multiple requests.
+/// Sessions are tied to the owning client, so we need to keep the connection open
+/// for the full session lifecycle.
+struct PersistentIpcClient {
+    stream: TcpStream,
+    reader: BufReader<TcpStream>,
+}
+
+/// Response types that indicate an actual response (not an event)
+const RESPONSE_TYPES: &[&str] = &[
+    "\"type\":\"pong\"",
+    "\"type\":\"authenticated\"",
+    "\"type\":\"authentication_required\"",
+    "\"type\":\"status\"",
+    "\"type\":\"machines\"",
+    "\"type\":\"machine\"",
+    "\"type\":\"sessions\"",
+    "\"type\":\"session_created\"",  // Note: also used as event, but response has specific format
+    "\"type\":\"ok\"",
+    "\"type\":\"error\"",
+    "\"type\":\"pairing_code\"",
+    "\"type\":\"pairing_code_valid\"",
+];
+
+impl PersistentIpcClient {
+    fn connect(port: u16) -> Result<Self, std::io::Error> {
+        let stream = TcpStream::connect(format!("127.0.0.1:{}", port))?;
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+
+        let reader = BufReader::new(stream.try_clone()?);
+
+        let mut client = Self { stream, reader };
+
+        // Authenticate
+        let token = read_auth_token()?;
+        let auth_request = format!(r#"{{"type":"authenticate","token":"{}"}}"#, token);
+        let auth_response = client.send_raw(&auth_request)?;
+
+        if !auth_response.contains("authenticated") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("Authentication failed: {}", auth_response),
+            ));
+        }
+
+        Ok(client)
+    }
+
+    fn send(&mut self, request: &str) -> Result<String, std::io::Error> {
+        writeln!(self.stream, "{}", request)?;
+        self.stream.flush()?;
+
+        // Read responses, skipping any broadcast events
+        // Events can arrive at any time (e.g., session_started with PID)
+        // We need to skip them and return the actual response to our request
+        loop {
+            let mut response = String::new();
+            self.reader.read_line(&mut response)?;
+
+            // Check if this is an actual response by looking for response type markers
+            // Events like "session_started", "machine_connected" etc. should be skipped
+            let is_response = RESPONSE_TYPES.iter().any(|t| response.contains(t));
+
+            // Special case: session_created can be both a response AND an event
+            // The response has "createdAt" field, event version is for broadcasting
+            // We need to check if this is the response to our create_session request
+            if response.contains("\"type\":\"session_created\"") {
+                // If we just sent create_session, this is our response
+                if request.contains("create_session") {
+                    return Ok(response);
+                }
+                // Otherwise it's a broadcast event, skip it
+                eprintln!("Skipping broadcast event: {}", response.trim());
+                continue;
+            }
+
+            if is_response {
+                return Ok(response);
+            }
+
+            // Skip this event and try again
+            eprintln!("Skipping broadcast event: {}", response.trim());
+        }
+    }
+
+    fn send_raw(&mut self, request: &str) -> Result<String, std::io::Error> {
+        writeln!(self.stream, "{}", request)?;
+        self.stream.flush()?;
+
+        let mut response = String::new();
+        self.reader.read_line(&mut response)?;
+        Ok(response)
+    }
+}
+
 /// Wait for IPC server to be ready
 fn wait_for_ipc(port: u16, timeout: Duration) -> bool {
     let start = std::time::Instant::now();
@@ -194,7 +348,6 @@ fn wait_for_ipc(port: u16, timeout: Duration) -> bool {
 }
 
 #[test]
-#[ignore] // Requires full environment - run with: cargo test -- --ignored
 fn test_e2e_orchestrator_starts_and_responds_to_ping() {
     let mut orchestrator = TestOrchestrator::start();
 
@@ -206,9 +359,9 @@ fn test_e2e_orchestrator_starts_and_responds_to_ping() {
         panic!("IPC server did not start within timeout");
     }
 
-    // Send ping via IPC
+    // Send ping via IPC (ping doesn't require authentication)
     let response =
-        ipc_request(orchestrator.ipc_port, r#"{"type":"ping"}"#).expect("Failed to send ping");
+        ipc_request_raw(orchestrator.ipc_port, r#"{"type":"ping"}"#).expect("Failed to send ping");
 
     assert!(
         response.contains("pong"),
@@ -218,7 +371,6 @@ fn test_e2e_orchestrator_starts_and_responds_to_ping() {
 }
 
 #[test]
-#[ignore]
 fn test_e2e_orchestrator_status() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -242,7 +394,6 @@ fn test_e2e_orchestrator_status() {
 }
 
 #[test]
-#[ignore]
 fn test_e2e_orchestrator_list_machines_empty() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -268,7 +419,6 @@ fn test_e2e_orchestrator_list_machines_empty() {
 }
 
 #[test]
-#[ignore]
 fn test_e2e_orchestrator_list_sessions_empty() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -296,7 +446,6 @@ fn test_e2e_orchestrator_list_sessions_empty() {
 }
 
 #[test]
-#[ignore]
 fn test_e2e_orchestrator_shutdown() {
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
@@ -325,8 +474,9 @@ fn test_e2e_orchestrator_shutdown() {
 }
 
 #[test]
-#[ignore]
 fn test_e2e_agent_connects_to_orchestrator() {
+    // This test connects via localhost (127.0.0.1), which bypasses Tailscale verification.
+    // The orchestrator accepts loopback connections without checking Tailscale membership.
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
 
@@ -375,8 +525,9 @@ fn test_e2e_agent_connects_to_orchestrator() {
 }
 
 #[test]
-#[ignore]
 fn test_e2e_full_session_flow() {
+    // This test connects via localhost (127.0.0.1), which bypasses Tailscale verification.
+    // The orchestrator accepts loopback connections without checking Tailscale membership.
     let mut orchestrator = TestOrchestrator::start();
     assert!(orchestrator.is_running(), "Orchestrator should be running");
 
@@ -387,8 +538,15 @@ fn test_e2e_full_session_flow() {
     let _agent = TestAgent::start(&format!("127.0.0.1:{}", orchestrator.config.ssh_port));
     std::thread::sleep(Duration::from_secs(3));
 
+    // Use a persistent client for the full session flow.
+    // Sessions are tied to their owning client and cleaned up when the client disconnects,
+    // so we need to maintain the same connection throughout the test.
+    let mut client = PersistentIpcClient::connect(orchestrator.ipc_port)
+        .expect("Failed to connect persistent client");
+
     // List machines to verify agent connected
-    let machines_resp = ipc_request(orchestrator.ipc_port, r#"{"type":"list_machines"}"#)
+    let machines_resp = client
+        .send(r#"{"type":"list_machines"}"#)
         .expect("Failed to list machines");
     println!("Machines: {}", machines_resp);
 
@@ -410,8 +568,7 @@ fn test_e2e_full_session_flow() {
         r#"{{"type":"create_session","machine_id":"{}","shell":null}}"#,
         machine_id
     );
-    let create_resp =
-        ipc_request(orchestrator.ipc_port, &create_req).expect("Failed to create session");
+    let create_resp = client.send(&create_req).expect("Failed to create session");
     println!("Create session response: {}", create_resp);
 
     assert!(
@@ -429,7 +586,8 @@ fn test_e2e_full_session_flow() {
     println!("Session ID: {}", session_id);
 
     // List sessions to verify it exists
-    let sessions_resp = ipc_request(orchestrator.ipc_port, r#"{"type":"list_sessions"}"#)
+    let sessions_resp = client
+        .send(r#"{"type":"list_sessions"}"#)
         .expect("Failed to list sessions");
     println!("Sessions: {}", sessions_resp);
 
@@ -444,8 +602,7 @@ fn test_e2e_full_session_flow() {
         r#"{{"type":"close_session","session_id":"{}","force":false}}"#,
         session_id
     );
-    let close_resp =
-        ipc_request(orchestrator.ipc_port, &close_req).expect("Failed to close session");
+    let close_resp = client.send(&close_req).expect("Failed to close session");
     println!("Close session response: {}", close_resp);
 
     assert!(
@@ -459,7 +616,8 @@ fn test_e2e_full_session_flow() {
     std::thread::sleep(Duration::from_millis(500));
 
     // Verify session is gone
-    let sessions_after = ipc_request(orchestrator.ipc_port, r#"{"type":"list_sessions"}"#)
+    let sessions_after = client
+        .send(r#"{"type":"list_sessions"}"#)
         .expect("Failed to list sessions after close");
     println!("Sessions after close: {}", sessions_after);
 

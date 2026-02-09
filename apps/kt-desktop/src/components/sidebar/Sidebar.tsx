@@ -8,9 +8,9 @@ export function Sidebar() {
   const setSection = useAppStore((s) => s.setSidebarSection);
 
   return (
-    <div className="h-full flex flex-col bg-sidebar-bg border-r border-sidebar-active">
+    <div className="h-full flex flex-col bg-bg-surface border-r border-border">
       {/* Section tabs */}
-      <div className="flex border-b border-sidebar-active">
+      <div className="flex border-b border-border-faint">
         <SectionTab
           label="Machines"
           active={section === "machines"}
@@ -44,13 +44,17 @@ function SectionTab({
     <button
       onClick={onClick}
       className={clsx(
-        "flex-1 px-3 py-2 text-sm font-medium transition-colors",
+        "relative flex-1 py-3 text-[10px] font-semibold uppercase tracking-[1.5px] text-center transition-colors",
         active
-          ? "bg-sidebar-active text-terminal-fg"
-          : "text-terminal-fg/60 hover:text-terminal-fg hover:bg-sidebar-hover"
+          ? "text-text-secondary"
+          : "text-text-ghost hover:text-text-muted"
       )}
     >
       {label}
+      {/* Light slit under active tab */}
+      {active && (
+        <span className="absolute bottom-0 left-[30%] right-[30%] h-px bg-mauve opacity-50" />
+      )}
     </button>
   );
 }

@@ -1,6 +1,12 @@
 //! IPC client for communicating with the orchestrator
 //!
 //! Uses TCP on localhost for cross-platform compatibility.
+//! Handles authentication automatically using the token from the config directory.
+//!
+//! ## Event Sequencing
+//!
+//! Events from the orchestrator are wrapped in `IpcEventEnvelope` with monotonic
+//! sequence numbers. This enables gap detection and state recovery.
 
 use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -9,21 +15,20 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 use kt_core::ipc::{
-    IpcEvent, IpcRequest, IpcResponse, MachineInfo, OrchestratorStatus, SessionInfo,
+    default_ipc_address, IpcEvent, IpcEventEnvelope, IpcRequest, IpcResponse, MachineInfo,
+    OrchestratorStatus, SessionInfo,
 };
-
-/// Default IPC port
-pub const DEFAULT_IPC_PORT: u16 = 22230;
-
-/// Get the default IPC address
-pub fn default_ipc_address() -> String {
-    format!("127.0.0.1:{}", DEFAULT_IPC_PORT)
-}
+use kt_core::ipc_auth::read_token;
 
 /// Client for communicating with the orchestrator daemon
 pub struct OrchestratorClient {
     address: String,
     stream: Option<TcpStream>,
+    authenticated: bool,
+    /// Epoch ID from orchestrator (changes on restart)
+    epoch_id: Option<String>,
+    /// Last known sequence number for gap detection
+    last_seq: u64,
 }
 
 impl OrchestratorClient {
@@ -37,7 +42,20 @@ impl OrchestratorClient {
         Self {
             address,
             stream: None,
+            authenticated: false,
+            epoch_id: None,
+            last_seq: 0,
         }
+    }
+
+    /// Get the epoch ID if authenticated
+    pub fn epoch_id(&self) -> Option<&str> {
+        self.epoch_id.as_deref()
+    }
+
+    /// Get the last seen sequence number
+    pub fn last_seq(&self) -> u64 {
+        self.last_seq
     }
 
     /// Get the address
@@ -45,8 +63,51 @@ impl OrchestratorClient {
         &self.address
     }
 
-    /// Connect to the orchestrator
+    /// Connect to the orchestrator and authenticate
     pub async fn connect(&mut self) -> Result<()> {
+        // Connect if not already connected
+        self.connect_without_auth().await?;
+
+        // Authenticate if not already authenticated
+        if !self.authenticated {
+            self.authenticate().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Authenticate with the orchestrator using the token from the config directory
+    async fn authenticate(&mut self) -> Result<()> {
+        let token = read_token().with_context(|| {
+            "Failed to read IPC authentication token. Is the orchestrator running?"
+        })?;
+
+        let request = IpcRequest::Authenticate {
+            token,
+            client_id: None,
+        };
+        match self.send_request_raw(request).await? {
+            IpcResponse::Authenticated {
+                epoch_id,
+                current_seq,
+            } => {
+                tracing::debug!(
+                    epoch_id = %epoch_id,
+                    current_seq = current_seq,
+                    "Authenticated with orchestrator"
+                );
+                self.authenticated = true;
+                self.epoch_id = Some(epoch_id);
+                self.last_seq = current_seq;
+                Ok(())
+            }
+            IpcResponse::Error { message } => anyhow::bail!("Authentication failed: {}", message),
+            other => anyhow::bail!("Unexpected authentication response: {:?}", other),
+        }
+    }
+
+    /// Connect to the orchestrator without authenticating (for ping only)
+    async fn connect_without_auth(&mut self) -> Result<()> {
         if self.stream.is_some() {
             return Ok(());
         }
@@ -69,11 +130,12 @@ impl OrchestratorClient {
         self.stream.take()
     }
 
-    /// Check if the orchestrator is running
+    /// Check if the orchestrator is running (no authentication required)
     pub async fn ping(&mut self) -> Result<bool> {
-        self.connect().await?;
+        // Use connect_without_auth since ping doesn't require authentication
+        self.connect_without_auth().await?;
 
-        match self.send_request(IpcRequest::Ping).await {
+        match self.send_request_raw(IpcRequest::Ping).await {
             Ok(IpcResponse::Pong) => Ok(true),
             _ => Ok(false),
         }
@@ -162,6 +224,11 @@ impl OrchestratorClient {
 
         match self.send_request(request).await? {
             IpcResponse::Ok => Ok(()),
+            IpcResponse::Subscribed { current_seq, .. } => {
+                // Update last_seq from subscription response
+                self.last_seq = current_seq;
+                Ok(())
+            }
             IpcResponse::Error { message } => anyhow::bail!("{}", message),
             other => anyhow::bail!("Unexpected response: {:?}", other),
         }
@@ -226,8 +293,13 @@ impl OrchestratorClient {
         }
     }
 
-    /// Send a request and receive response
+    /// Send a request and receive response (used by all public methods)
     async fn send_request(&mut self, request: IpcRequest) -> Result<IpcResponse> {
+        self.send_request_raw(request).await
+    }
+
+    /// Send a request without automatic authentication (used internally)
+    async fn send_request_raw(&mut self, request: IpcRequest) -> Result<IpcResponse> {
         let stream = self
             .stream
             .as_mut()
@@ -260,6 +332,8 @@ impl Default for OrchestratorClient {
 pub struct TerminalSession {
     session_id: String,
     stream: TcpStream,
+    /// Last seen sequence number for gap detection
+    last_seq: u64,
 }
 
 impl TerminalSession {
@@ -268,12 +342,17 @@ impl TerminalSession {
         // Subscribe to terminal output
         client.subscribe(&session_id).await?;
 
-        // Take the stream for interactive mode
+        // Take the stream for interactive mode and inherit the sequence number
+        let last_seq = client.last_seq();
         let stream = client
             .take_stream()
             .ok_or_else(|| anyhow::anyhow!("No connection"))?;
 
-        Ok(Self { session_id, stream })
+        Ok(Self {
+            session_id,
+            stream,
+            last_seq,
+        })
     }
 
     /// Run the interactive terminal session
@@ -293,6 +372,7 @@ impl TerminalSession {
         let mut reader = BufReader::new(reader);
         let mut writer = BufWriter::new(writer);
         let session_id = self.session_id;
+        let mut last_seen_seq = self.last_seq;
 
         // Enter raw mode
         enable_raw_mode()?;
@@ -374,9 +454,20 @@ impl TerminalSession {
                     match result {
                         Ok(0) => break, // EOF
                         Ok(_) => {
-                            // Try to parse as IPC event
-                            if let Ok(event) = serde_json::from_str::<IpcEvent>(&line_buf) {
-                                match event {
+                            // Try to parse as IpcEventEnvelope (new protocol)
+                            if let Ok(envelope) = serde_json::from_str::<IpcEventEnvelope>(&line_buf) {
+                                // Check for sequence gaps (log warning but continue)
+                                if envelope.seq > last_seen_seq + 1 && last_seen_seq > 0 {
+                                    tracing::warn!(
+                                        expected = last_seen_seq + 1,
+                                        got = envelope.seq,
+                                        "Event sequence gap detected"
+                                    );
+                                }
+                                last_seen_seq = envelope.seq;
+
+                                // Extract the inner event and process it
+                                match envelope.event {
                                     IpcEvent::TerminalOutput { data, .. } => {
                                         stdout.write_all(&data)?;
                                         stdout.flush()?;

@@ -2,6 +2,8 @@ import { Handle, Position } from "@xyflow/react";
 import { clsx } from "clsx";
 import type { Machine } from "../../types";
 import { useTerminalsStore } from "../../stores/terminals";
+import { useAppStore } from "../../stores/app";
+import { toast } from "../../stores/toast";
 import * as tauri from "../../lib/tauri";
 
 interface MachineNodeProps {
@@ -12,12 +14,19 @@ export function MachineNode({ data }: MachineNodeProps) {
   const { machine } = data;
   const addTab = useTerminalsStore((s) => s.addTab);
   const addSession = useTerminalsStore((s) => s.addSession);
+  const setViewMode = useAppStore((s) => s.setViewMode);
 
   const isConnected = machine.status === "connected";
   const isConnecting = machine.status === "connecting";
 
   const handleDoubleClick = async () => {
     if (!isConnected) return;
+
+    // Ignore replayed events from bfcache/session restore
+    if (!window.__appReady) {
+      console.info("[MachineNode] Ignoring double-click - app not ready yet");
+      return;
+    }
 
     try {
       const session = await tauri.createSession(machine.id);
@@ -27,10 +36,12 @@ export function MachineNode({ data }: MachineNodeProps) {
         sessionId: session.id,
         machineId: machine.id,
         title: machine.alias || machine.hostname,
-        active: true,
       });
+      // Switch to Terminals view to show the new session
+      setViewMode("terminals");
     } catch (err) {
       console.error("Failed to create session:", err);
+      toast.error(`Failed to create session on ${machine.alias || machine.hostname}`);
     }
   };
 
@@ -38,64 +49,59 @@ export function MachineNode({ data }: MachineNodeProps) {
     <div
       onDoubleClick={handleDoubleClick}
       className={clsx(
-        "px-4 py-3 rounded-lg border-2 bg-sidebar-bg min-w-[160px] cursor-pointer transition-all",
-        "hover:shadow-lg hover:shadow-terminal-blue/20",
-        isConnected && "border-terminal-green",
-        isConnecting && "border-terminal-yellow",
-        !isConnected && !isConnecting && "border-terminal-red opacity-60"
+        "px-4 py-3 rounded-zen border-2 bg-bg-surface min-w-[150px] cursor-pointer transition-all",
+        isConnected && "border-border hover:border-sage/50",
+        isConnecting && "border-ochre-dim",
+        !isConnected && !isConnecting && "border-border-faint opacity-50"
       )}
     >
       {/* Connection handle */}
       <Handle
         type="target"
         position={Position.Top}
-        className="!bg-terminal-fg/30 !w-3 !h-3 !border-2 !border-sidebar-bg"
+        className="!bg-border !w-2.5 !h-2.5 !border-2 !border-bg-surface !rounded-sm"
       />
 
       {/* Header */}
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-1">
         <div
           className={clsx(
-            "w-2.5 h-2.5 rounded-full",
-            isConnected && "bg-terminal-green",
-            isConnecting && "bg-terminal-yellow animate-pulse",
-            !isConnected && !isConnecting && "bg-terminal-red"
+            "w-1.5 h-1.5 rounded-full flex-shrink-0",
+            isConnected && "bg-sage",
+            isConnecting && "bg-ochre animate-breathe",
+            !isConnected && !isConnecting && "bg-terracotta-dim"
           )}
         />
-        <span className="font-medium text-sm truncate">
+        <span className="font-medium text-xs text-text-primary truncate">
           {machine.alias || machine.hostname}
         </span>
       </div>
 
       {/* Details */}
-      <div className="text-xs text-terminal-fg/60 space-y-0.5">
-        <div className="flex items-center gap-1">
-          <span>💻</span>
-          <span>{machine.os}/{machine.arch}</span>
-        </div>
+      <div className="text-[10px] text-text-ghost space-y-0.5 ml-[14px]">
+        <div>{machine.os}/{machine.arch}</div>
         {machine.sessionCount > 0 && (
-          <div className="flex items-center gap-1">
-            <span>📺</span>
-            <span>{machine.sessionCount} sessions</span>
-          </div>
-        )}
-        {machine.tags && machine.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1">
-            {machine.tags.map((tag) => (
-              <span
-                key={tag}
-                className="px-1.5 py-0.5 bg-terminal-blue/20 rounded text-terminal-blue"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
+          <div>{machine.sessionCount} sessions</div>
         )}
       </div>
 
+      {/* Tags */}
+      {machine.tags && machine.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2 ml-[14px]">
+          {machine.tags.map((tag) => (
+            <span
+              key={tag}
+              className="text-[9px] font-medium uppercase tracking-[0.5px] px-1.5 py-px border border-border rounded-sm text-text-muted"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Double-click hint */}
       {isConnected && (
-        <div className="mt-2 text-xs text-terminal-fg/40 text-center">
+        <div className="mt-2 text-[10px] text-text-ghost text-center">
           Double-click to connect
         </div>
       )}

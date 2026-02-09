@@ -1,10 +1,10 @@
 [package]
 name = "kt-desktop"
-version = "0.1.0"
+version.workspace = true
 description = "k-Terminus Desktop GUI"
-authors = ["k-Terminus Team"]
-edition = "2021"
-license = "MIT"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [lib]
 name = "kt_desktop_lib"
@@ -23,6 +23,8 @@ tokio = { version = "1.36", features = ["full"] }
 tokio-util = "0.7"
 anyhow = "1.0"
 tracing = "0.1"
+uuid = { version = "1.0", features = ["v4"] }
+parking_lot = "0.12"
 
 # Reference the workspace crates
 kt-protocol = { path = "../../../crates/kt-protocol" }

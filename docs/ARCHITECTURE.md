@@ -121,6 +121,38 @@ Single binary providing all commands:
 - `src/commands/` - Individual command implementations
 - `src/ipc/client.rs` - IPC client for management commands
 
+### Desktop App (`kt-desktop`)
+
+Tauri 2.0 application with React frontend and embedded orchestrator:
+
+**Rust Backend (`src-tauri/`):**
+- `src/orchestrator.rs` - Embedded orchestrator lifecycle management
+- `src/ipc_client.rs` - IPC client for orchestrator communication
+- `src/commands.rs` - Tauri command handlers
+- `src/state.rs` - Application state management
+
+**React Frontend (`src/`):**
+- `stores/terminals.ts` - Terminal tabs and sessions (Zustand)
+- `stores/layout.ts` - Pane layout tree (Zustand with persistence)
+- `stores/machines.ts` - Connected machines state
+- `components/terminal/` - Terminal rendering and pane management
+- `components/sidebar/` - Machine list with virtual scrolling
+
+**Pane Layout System:**
+
+The terminal view uses a recursive tree-based layout:
+
+```typescript
+type LayoutNode =
+  | { type: "pane"; id: string; tabId: string }
+  | { type: "split"; id: string; direction: "horizontal" | "vertical";
+      children: LayoutNode[]; sizes: number[] };
+```
+
+- Tree is stored in Zustand with localStorage persistence
+- `react-resizable-panels` handles resize interactions
+- Drag-and-drop uses HTML5 API with drop zones on pane edges
+
 ## Data Flow
 
 ### Connection Establishment
@@ -227,20 +259,55 @@ pub fn verify_peer(&self, ip: IpAddr) -> Option<TailscalePeer> {
 
 CLI and desktop app communicate with orchestrator via TCP (localhost:22230).
 
+### Authentication
+
+IPC connections require token-based authentication:
+
+1. Orchestrator generates random 64-character token on startup
+2. Token written to `~/.k-terminus/ipc_auth_token` with mode 600
+3. Clients read token from file and send `Authenticate` request
+4. All requests except `Ping` and `VerifyPairingCode` require authentication
+
+```
+Client                              Orchestrator
+  │                                      │
+  ├── {"type": "authenticate",           │
+  │    "token": "abc123..."} ───────────►│
+  │                                      │
+  │◄── {"type": "authenticated"} ────────┤
+  │                                      │
+  ├── {"type": "list_machines"} ────────►│
+  │                                      │
+  │◄── {"type": "machines", ...} ────────┤
+```
+
+### Request/Response Format
+
 **Request format:** JSON with `type` field
 ```json
 {"type": "ping"}
+{"type": "authenticate", "token": "..."}
 {"type": "list_machines"}
 {"type": "create_session", "machine_id": "home-server", "shell": null}
+{"type": "verify_pairing_code", "code": "ABC123"}
 ```
 
 **Response format:** JSON with `type` field
 ```json
 {"type": "pong"}
+{"type": "authenticated"}
+{"type": "authentication_required"}
 {"type": "machines", "machines": [...]}
 {"type": "session_created", "id": "...", "machine_id": "..."}
+{"type": "pairing_code_valid", "valid": true}
 {"type": "error", "message": "..."}
 ```
+
+### Rate Limiting
+
+IPC server enforces rate limits to prevent abuse:
+- 1000 requests per second per client
+- Maximum 100 concurrent connections
 
 ## Concurrency Model
 
@@ -255,12 +322,111 @@ CLI and desktop app communicate with orchestrator via TCP (localhost:22230).
 - **thiserror** for typed errors in libraries
 - Clear error messages when Tailscale is unavailable
 
+## Security Model
+
+k-Terminus implements multiple security measures to protect against common attack vectors.
+
+### Input Validation
+
+All input from external sources is validated before processing:
+
+- **Session input**: Terminal data is limited to 64KB per message to prevent memory exhaustion attacks
+- **Protocol messages**: Frame payloads are limited to 16MB (enforced by 24-bit length field in frame header)
+- **IPC requests**: JSON requests are validated with size limits before parsing
+
+### Session Ownership Tracking
+
+Sessions are bound to specific machines to prevent unauthorized access:
+
+- Each session stores the `machine_id` of the machine that owns it
+- Session operations (input, resize, close) verify the session belongs to the requesting machine
+- Sessions can only be created on connected machines
+
+### Session Cleanup on Disconnect
+
+When an agent disconnects (intentionally or due to network failure):
+
+1. All sessions belonging to that machine are identified via `remove_by_machine()`
+2. Sessions are cleanly terminated and removed from the session manager
+3. Resources (PTY handles, buffers) are released
+4. IPC clients are notified of session termination
+
+This prevents orphaned sessions and ensures clean state recovery.
+
+## Scalability
+
+k-Terminus supports configurable limits for resource management.
+
+### Connection Limits
+
+The orchestrator can enforce maximum concurrent agent connections:
+
+```toml
+[orchestrator]
+max_connections = 100  # Optional, default unlimited
+```
+
+When the limit is reached:
+- New connection attempts receive a clear error message
+- Existing connections are not affected
+- Administrators can monitor connection count via `k-terminus status`
+
+### Session Limits
+
+Per-machine session limits prevent resource exhaustion:
+
+```toml
+[orchestrator]
+max_sessions_per_machine = 10  # Optional, default unlimited
+```
+
+When creating a session would exceed the limit:
+- The session creation request is rejected with `SessionLimitExceeded` error
+- Existing sessions continue to function
+- Users can close sessions to free capacity
+
+## Protocol Versioning
+
+The k-Terminus protocol includes version negotiation for forward compatibility.
+
+### Version Field in Register Message
+
+When agents connect, they send a `Register` message that may include:
+
+```rust
+Register {
+    machine_id: String,
+    hostname: String,
+    os: String,
+    arch: String,
+    version: Option<String>,  // Protocol version (e.g., "1.0")
+}
+```
+
+The orchestrator can use this to:
+- Reject connections from incompatible protocol versions
+- Enable or disable features based on agent capabilities
+- Log version distribution for compatibility planning
+
+### Version Compatibility
+
+| Protocol Version | Features |
+|------------------|----------|
+| 1.0 | Core functionality (sessions, heartbeat) |
+
+Future versions will maintain backward compatibility where possible.
+
 ## Testing Strategy
 
-| Level | Location | Description |
-|-------|----------|-------------|
-| Unit | `src/*.rs` | Inline module tests |
-| Integration | `tests/*.rs` | Component interaction |
-| E2E | `kt-cli/tests/e2e_test.rs` | Full process spawning |
+| Level | Location | Tests | Description |
+|-------|----------|-------|-------------|
+| Unit | `src/*.rs` | ~85 | Inline module tests |
+| CLI Integration | `kt-cli/tests/cli_integration.rs` | 14 | CLI argument parsing and output |
+| IPC Integration | `kt-orchestrator/tests/ipc_integration.rs` | 14 | IPC server communication |
+| E2E | `kt-cli/tests/e2e_test.rs` | 7 | Full process spawning |
+
+**Total: 120+ tests, all passing.**
 
 Run with `cargo test --workspace -- --test-threads=1` for reliability.
+
+Note: E2E tests spawn actual orchestrator and agent processes but use loopback connections, so they work without Tailscale installed (useful for CI environments).

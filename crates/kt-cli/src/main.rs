@@ -62,11 +62,12 @@ enum Commands {
     /// Alias: agent
     #[command(alias = "agent")]
     Join {
-        /// Orchestrator to connect to (Tailscale name or address)
-        /// Examples: "my-laptop", "my-laptop.tailnet.ts.net:2222"
-        orchestrator: String,
+        /// Orchestrator to connect to (hostname, address, or pairing code)
+        /// Examples: "my-laptop", "my-laptop.tailnet.ts.net:2222", "ABC123"
+        /// If omitted, prompts for pairing code
+        target: Option<String>,
         /// Machine alias (defaults to hostname)
-        #[arg(long)]
+        #[arg(short = 'a', long)]
         alias: Option<String>,
         /// Path to private key (auto-generated if not specified)
         #[arg(short, long)]
@@ -222,12 +223,12 @@ async fn main() -> Result<()> {
         }
 
         Commands::Join {
-            orchestrator,
+            target,
             alias,
             key,
             foreground,
         } => {
-            run_join(&orchestrator, alias.as_deref(), key, foreground).await?;
+            run_join(target.as_deref(), alias.as_deref(), key, foreground).await?;
         }
 
         Commands::List { machine, tag, long } => {
@@ -339,7 +340,10 @@ async fn run_orchestrator(
 
     // Load or generate host key
     let host_key = load_or_generate_host_key(&config.host_key_path).await?;
-    let host_key_fingerprint = host_key.clone_public_key().unwrap().fingerprint();
+    let public_key = host_key
+        .clone_public_key()
+        .context("Failed to extract public key from host key")?;
+    let host_key_fingerprint = public_key.fingerprint();
     tracing::info!("Host key fingerprint: {}", host_key_fingerprint);
 
     // Create orchestrator state
@@ -382,7 +386,8 @@ async fn run_orchestrator(
     // Start IPC server for CLI/GUI communication
     let ipc_address = config.ipc_address();
     let ipc_server = Arc::new(
-        IpcServer::new(ipc_address.clone(), Arc::clone(&state)).with_shutdown_token(cancel.clone()),
+        IpcServer::new(ipc_address.clone(), Arc::clone(&state))?
+            .with_shutdown_token(cancel.clone()),
     );
     let ipc_event_tx = ipc_server.event_sender();
 
@@ -426,7 +431,8 @@ async fn run_orchestrator(
     // Create and run SSH server
     let server = SshServer::new(host_key, Arc::clone(&state), cancel.clone(), event_tx);
 
-    // Print connection info
+    // Print connection info with pairing code
+    let pairing_code = state.pairing_code();
     if let Ok(Some(ts_info)) = kt_core::tailscale::get_tailscale_info() {
         if ts_info.logged_in {
             let port = bind_addr.split(':').next_back().unwrap_or("2222");
@@ -438,10 +444,22 @@ async fn run_orchestrator(
                 ts_info.device_name, ts_info.tailnet, port
             );
             println!();
+            println!("  \x1b[1;36mPairing Code: {}\x1b[0m", pairing_code);
+            println!();
             println!("  To connect agents, run on remote machines:");
-            println!("    k-terminus join {}", ts_info.device_name);
+            println!("    k-terminus join {}      \x1b[90m# using pairing code\x1b[0m", pairing_code);
+            println!("    k-terminus join {}  \x1b[90m# using hostname\x1b[0m", ts_info.device_name);
             println!();
         }
+    } else {
+        // No Tailscale, still show pairing code for local testing
+        println!();
+        println!("  \x1b[1;32mk-Terminus Orchestrator\x1b[0m");
+        println!();
+        println!("  Listening on: {}", bind_addr);
+        println!();
+        println!("  \x1b[1;36mPairing Code: {}\x1b[0m", pairing_code);
+        println!();
     }
 
     tracing::info!("Starting SSH server on {}", bind_addr);
@@ -454,7 +472,7 @@ async fn run_orchestrator(
 async fn handle_connection_event_with_ipc(
     state: &kt_orchestrator::OrchestratorState,
     event: kt_orchestrator::server::ConnectionEvent,
-    ipc_event_tx: &tokio::sync::broadcast::Sender<kt_core::ipc::IpcEvent>,
+    ipc_event_tx: &tokio::sync::broadcast::Sender<kt_core::ipc::IpcEventEnvelope>,
 ) {
     use kt_core::ipc::IpcEvent;
     use kt_orchestrator::connection::TunnelConnection;
@@ -480,7 +498,7 @@ async fn handle_connection_event_with_ipc(
             );
 
             // Register in connection pool
-            state.connections.insert(TunnelConnection::new(
+            state.coordinator.connections.insert(TunnelConnection::new(
                 machine_id.clone(),
                 Some(alias.clone()),
                 Some(hostname.clone()),
@@ -490,8 +508,8 @@ async fn handle_connection_event_with_ipc(
                 cancel,
             ));
 
-            // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::MachineConnected(kt_core::ipc::MachineInfo {
+            // Broadcast to IPC clients (wrapped in envelope)
+            let event = IpcEvent::MachineConnected(kt_core::ipc::MachineInfo {
                 id: machine_id.to_string(),
                 alias: Some(alias),
                 hostname,
@@ -502,19 +520,42 @@ async fn handle_connection_event_with_ipc(
                 last_heartbeat: None,
                 session_count: 0,
                 tags: vec![],
-            }));
+            });
+            let _ = ipc_event_tx.send(state.epoch.wrap_event(event));
         }
 
         ConnectionEvent::MachineDisconnected { machine_id } => {
             tracing::info!("Machine disconnected: {}", machine_id);
 
             // Remove from connection pool
-            state.connections.remove(&machine_id);
+            state.coordinator.connections.remove(&machine_id);
 
-            // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::MachineDisconnected {
+            // Clean up all sessions for the disconnected machine
+            let removed_sessions = state.coordinator.sessions.remove_by_machine(&machine_id);
+            for session in &removed_sessions {
+                tracing::info!(
+                    "Cleaned up orphaned session {} on machine disconnect",
+                    session.id
+                );
+                // Notify IPC clients that the session was closed
+                let event = IpcEvent::SessionClosed {
+                    session_id: session.id.to_string(),
+                };
+                let _ = ipc_event_tx.send(state.epoch.wrap_event(event));
+            }
+            if !removed_sessions.is_empty() {
+                tracing::info!(
+                    "Cleaned up {} orphaned sessions for disconnected machine {}",
+                    removed_sessions.len(),
+                    machine_id
+                );
+            }
+
+            // Broadcast machine disconnected to IPC clients
+            let event = IpcEvent::MachineDisconnected {
                 machine_id: machine_id.to_string(),
-            });
+            };
+            let _ = ipc_event_tx.send(state.epoch.wrap_event(event));
         }
 
         ConnectionEvent::SessionCreated {
@@ -530,17 +571,18 @@ async fn handle_connection_event_with_ipc(
             );
 
             // Update session with PID
-            state.sessions.set_pid(session_id, pid);
+            state.coordinator.sessions.set_pid(session_id, pid);
 
             // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::SessionCreated(kt_core::ipc::SessionInfo {
+            let event = IpcEvent::SessionCreated(kt_core::ipc::SessionInfo {
                 id: session_id.to_string(),
                 machine_id: machine_id.to_string(),
                 shell: None,
                 created_at: String::new(),
                 pid: Some(pid),
                 size: None,
-            }));
+            });
+            let _ = ipc_event_tx.send(state.epoch.wrap_event(event));
         }
 
         ConnectionEvent::SessionClosed {
@@ -550,12 +592,13 @@ async fn handle_connection_event_with_ipc(
             tracing::info!("Session {} closed on {}", session_id, machine_id);
 
             // Remove session
-            state.sessions.remove(session_id);
+            state.coordinator.sessions.remove(session_id);
 
             // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::SessionClosed {
+            let event = IpcEvent::SessionClosed {
                 session_id: session_id.to_string(),
-            });
+            };
+            let _ = ipc_event_tx.send(state.epoch.wrap_event(event));
         }
 
         ConnectionEvent::SessionData {
@@ -563,11 +606,12 @@ async fn handle_connection_event_with_ipc(
             session_id,
             data,
         } => {
-            // Broadcast terminal output to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::TerminalOutput {
+            // Broadcast terminal output to IPC clients (wrapped in envelope)
+            let event = IpcEvent::TerminalOutput {
                 session_id: session_id.to_string(),
                 data,
-            });
+            };
+            let _ = ipc_event_tx.send(state.epoch.wrap_event(event));
         }
     }
 }
@@ -576,9 +620,23 @@ async fn handle_connection_event_with_ipc(
 // Join (Agent) Implementation
 // ============================================================================
 
+/// Check if a string looks like a pairing code (6 alphanumeric chars, no dots or colons)
+/// Pairing code length (must match kt-orchestrator::state::PAIRING_CODE_LENGTH)
+const PAIRING_CODE_LENGTH: usize = 8;
+
+/// Pairing code charset: uppercase letters (no I, O) + digits (no 0, 1)
+const PAIRING_CODE_CHARSET: &str = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+fn looks_like_pairing_code(s: &str) -> bool {
+    s.len() == PAIRING_CODE_LENGTH
+        && !s.contains('.')
+        && !s.contains(':')
+        && s.chars().all(|c| PAIRING_CODE_CHARSET.contains(c))
+}
+
 /// Connect to an orchestrator as an agent
 async fn run_join(
-    orchestrator: &str,
+    target: Option<&str>,
     alias: Option<&str>,
     key_path: Option<PathBuf>,
     foreground: bool,
@@ -601,19 +659,22 @@ async fn run_join(
         anyhow::bail!("Tailscale is not logged in. Run: sudo tailscale up");
     }
 
-    // Resolve orchestrator address
-    let resolved = tailscale::resolve_device_name(orchestrator, &ts_info.tailnet);
-    let address = if resolved.contains(':') {
-        resolved
-    } else {
-        format!("{}:2222", resolved)
-    };
-
+    // Handle daemonization first (before interactive prompts)
     if !foreground {
-        // Daemonize
+        if target.is_none() {
+            // Can't daemonize without a target (needs interactive input)
+            anyhow::bail!(
+                "Cannot run in background without specifying a target.\n\
+                 Use --foreground to be prompted for a pairing code, or specify a target:\n\n\
+                   k-terminus join ABC123           # pairing code\n\
+                   k-terminus join my-laptop        # hostname"
+            );
+        }
+
+        // Daemonize with the provided target
         let exe = std::env::current_exe()?;
         let mut cmd = std::process::Command::new(exe);
-        cmd.arg("join").arg(orchestrator).arg("--foreground");
+        cmd.arg("join").arg(target.unwrap()).arg("--foreground");
         if let Some(a) = alias {
             cmd.arg("--alias").arg(a);
         }
@@ -630,6 +691,40 @@ async fn run_join(
         print_success(&format!("Agent started (PID: {})", child.id()));
         return Ok(());
     }
+
+    // Determine orchestrator address
+    let address = match target {
+        Some(t) if looks_like_pairing_code(t) => {
+            // It's a pairing code - discover orchestrator
+            print_info(&format!("Discovering orchestrator with pairing code {}...", t.to_uppercase()));
+            let discovered = kt_agent::discover_orchestrator(t)
+                .await
+                .context("Failed to discover orchestrator")?;
+            print_success(&format!("Found orchestrator: {}", discovered.peer.device_name));
+            discovered.ssh_address
+        }
+        Some(t) => {
+            // It's a hostname/address - resolve it
+            let resolved = tailscale::resolve_device_name(t, &ts_info.tailnet);
+            if resolved.contains(':') {
+                resolved
+            } else {
+                format!("{}:2222", resolved)
+            }
+        }
+        None => {
+            // No target - prompt for pairing code (only in foreground mode)
+            print_info("No orchestrator specified. Enter the pairing code shown on the orchestrator.");
+            let code = kt_agent::prompt_pairing_code()
+                .context("Failed to get pairing code")?;
+            print_info(&format!("Discovering orchestrator with pairing code {}...", code));
+            let discovered = kt_agent::discover_orchestrator(&code)
+                .await
+                .context("Failed to discover orchestrator")?;
+            print_success(&format!("Found orchestrator: {}", discovered.peer.device_name));
+            discovered.ssh_address
+        }
+    };
 
     print_info(&format!("Connecting to {} via Tailscale...", address));
 
@@ -847,4 +942,47 @@ async fn ensure_orchestrator_running() -> Result<()> {
 
     print_warning("Orchestrator may still be starting...");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_looks_like_pairing_code_valid() {
+        // Valid 8-character codes using the charset
+        assert!(looks_like_pairing_code("XX7WU27R"));
+        assert!(looks_like_pairing_code("ABCD2345"));
+        assert!(looks_like_pairing_code("ZZZZ9999"));
+    }
+
+    #[test]
+    fn test_looks_like_pairing_code_invalid_length() {
+        // Too short (old 6-char format)
+        assert!(!looks_like_pairing_code("ABC123"));
+        // Too long
+        assert!(!looks_like_pairing_code("ABCD12345"));
+        // Empty
+        assert!(!looks_like_pairing_code(""));
+    }
+
+    #[test]
+    fn test_looks_like_pairing_code_invalid_chars() {
+        // Contains excluded chars (I, O, 0, 1)
+        assert!(!looks_like_pairing_code("ABCD1234")); // has 1
+        assert!(!looks_like_pairing_code("ABCD0234")); // has 0
+        assert!(!looks_like_pairing_code("ABCDI234")); // has I
+        assert!(!looks_like_pairing_code("ABCDO234")); // has O
+        // Lowercase
+        assert!(!looks_like_pairing_code("abcd2345"));
+    }
+
+    #[test]
+    fn test_looks_like_pairing_code_not_hostname() {
+        // Hostnames contain dots
+        assert!(!looks_like_pairing_code("my-laptop.tailnet.ts.net"));
+        assert!(!looks_like_pairing_code("host.com"));
+        // Addresses contain colons
+        assert!(!looks_like_pairing_code("host:2222"));
+    }
 }

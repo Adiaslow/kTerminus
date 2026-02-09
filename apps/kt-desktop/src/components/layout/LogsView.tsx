@@ -1,54 +1,26 @@
 import { useState } from "react";
 import { clsx } from "clsx";
+import { DocumentIcon } from "../Icons";
 
 type LogLevel = "all" | "error" | "warn" | "info" | "debug";
 
 interface LogEntry {
+  id: string; // Unique identifier for React key
   timestamp: string;
   level: "error" | "warn" | "info" | "debug";
   message: string;
   source?: string;
 }
 
-// Mock data for demonstration
-const mockLogs: LogEntry[] = [
-  {
-    timestamp: "2024-01-15T10:30:00Z",
-    level: "info",
-    message: "Orchestrator started on 0.0.0.0:2222",
-    source: "orchestrator",
-  },
-  {
-    timestamp: "2024-01-15T10:30:05Z",
-    level: "info",
-    message: "Agent connected: lab-gpu-01 (192.168.1.100)",
-    source: "connection",
-  },
-  {
-    timestamp: "2024-01-15T10:30:10Z",
-    level: "debug",
-    message: "Heartbeat received from lab-gpu-01",
-    source: "heartbeat",
-  },
-  {
-    timestamp: "2024-01-15T10:30:15Z",
-    level: "info",
-    message: "Session created: session-abc123 on lab-gpu-01",
-    source: "session",
-  },
-  {
-    timestamp: "2024-01-15T10:30:20Z",
-    level: "warn",
-    message: "High latency detected for lab-gpu-01 (150ms)",
-    source: "health",
-  },
-];
-
 export function LogsView() {
   const [filter, setFilter] = useState<LogLevel>("all");
   const [search, setSearch] = useState("");
 
-  const filteredLogs = mockLogs.filter((log) => {
+  // Log streaming from orchestrator is not yet implemented
+  const logs: LogEntry[] = [];
+  const isLogsAvailable = false;
+
+  const filteredLogs = logs.filter((log) => {
     if (filter !== "all" && log.level !== filter) return false;
     if (search && !log.message.toLowerCase().includes(search.toLowerCase()))
       return false;
@@ -58,7 +30,7 @@ export function LogsView() {
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
-      <div className="flex items-center gap-4 p-3 border-b border-sidebar-active">
+      <div className="flex items-center gap-4 p-3 border-b border-border-faint">
         {/* Level filter */}
         <div className="flex items-center gap-1">
           {(["all", "error", "warn", "info", "debug"] as LogLevel[]).map(
@@ -69,8 +41,8 @@ export function LogsView() {
                 className={clsx(
                   "px-2 py-1 text-xs rounded capitalize",
                   filter === level
-                    ? "bg-sidebar-active"
-                    : "hover:bg-sidebar-hover"
+                    ? "bg-bg-elevated text-text-secondary"
+                    : "text-text-ghost hover:bg-bg-hover hover:text-text-muted"
                 )}
               >
                 {level}
@@ -89,19 +61,49 @@ export function LogsView() {
         />
 
         {/* Actions */}
-        <button className="btn btn-secondary text-xs">Clear</button>
-        <button className="btn btn-secondary text-xs">Export</button>
+        <button
+          className="btn btn-secondary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!isLogsAvailable || logs.length === 0}
+          title={!isLogsAvailable ? "Log streaming coming soon" : "Clear all logs"}
+          aria-label="Clear logs"
+        >
+          Clear
+        </button>
+        <button
+          className="btn btn-secondary text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={!isLogsAvailable || logs.length === 0}
+          title={!isLogsAvailable ? "Log streaming coming soon" : "Export logs to file"}
+          aria-label="Export logs"
+        >
+          Export
+        </button>
       </div>
 
       {/* Log entries */}
       <div className="flex-1 overflow-auto font-mono text-sm">
-        {filteredLogs.length === 0 ? (
-          <div className="p-4 text-terminal-fg/50">No logs to display</div>
+        {!isLogsAvailable ? (
+          <div className="flex flex-col items-center justify-center h-full text-text-muted">
+            <div className="w-16 h-16 mb-4 rounded-full bg-mauve/10 flex items-center justify-center">
+              <DocumentIcon className="w-8 h-8 text-mauve" />
+            </div>
+            <div className="text-lg mb-2 font-medium">Log Streaming Coming Soon</div>
+            <div className="text-sm text-text-ghost max-w-sm text-center">
+              Real-time log streaming from the orchestrator and connected machines
+              will be available in a future update.
+            </div>
+          </div>
+        ) : filteredLogs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-text-muted">
+            <div className="text-lg mb-2">No logs yet</div>
+            <div className="text-sm text-text-ghost">
+              Logs will appear here when the orchestrator is running
+            </div>
+          </div>
         ) : (
           <table className="w-full">
             <tbody>
-              {filteredLogs.map((log, i) => (
-                <LogRow key={i} log={log} />
+              {filteredLogs.map((log) => (
+                <LogRow key={log.id} log={log} />
               ))}
             </tbody>
           </table>
@@ -113,10 +115,10 @@ export function LogsView() {
 
 function LogRow({ log }: { log: LogEntry }) {
   const levelColors = {
-    error: "text-terminal-red",
-    warn: "text-terminal-yellow",
-    info: "text-terminal-blue",
-    debug: "text-terminal-fg/50",
+    error: "text-terracotta",
+    warn: "text-ochre",
+    info: "text-sage",
+    debug: "text-text-muted",
   };
 
   const formatTime = (ts: string) => {
@@ -125,8 +127,8 @@ function LogRow({ log }: { log: LogEntry }) {
   };
 
   return (
-    <tr className="hover:bg-sidebar-hover/30 border-b border-sidebar-active/30">
-      <td className="px-3 py-1.5 text-terminal-fg/50 whitespace-nowrap">
+    <tr className="hover:bg-bg-hover/30 border-b border-border-faint/50">
+      <td className="px-3 py-1.5 text-text-ghost whitespace-nowrap">
         {formatTime(log.timestamp)}
       </td>
       <td
@@ -137,10 +139,10 @@ function LogRow({ log }: { log: LogEntry }) {
       >
         {log.level}
       </td>
-      <td className="px-3 py-1.5 text-terminal-fg/60 whitespace-nowrap">
+      <td className="px-3 py-1.5 text-text-muted whitespace-nowrap">
         {log.source}
       </td>
-      <td className="px-3 py-1.5">{log.message}</td>
+      <td className="px-3 py-1.5 text-text-secondary">{log.message}</td>
     </tr>
   );
 }

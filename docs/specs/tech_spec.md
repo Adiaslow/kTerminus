@@ -35,13 +35,15 @@ k-Terminus is a distributed terminal session manager designed to orchestrate com
 | Component | Status | Notes |
 |-----------|--------|-------|
 | **Core Protocol** | ✅ Complete | Frame codec, message types, session multiplexing |
-| **Orchestrator** | ✅ Complete | SSH server, connection pool, session manager, IPC |
-| **Agent** | ✅ Complete | SSH tunnel, PTY management, reconnection |
+| **Orchestrator** | ✅ Complete | SSH server, connection pool, session manager, IPC with authentication |
+| **Agent** | ✅ Complete | SSH tunnel, PTY management, reconnection, pairing code discovery |
 | **CLI** | ✅ Complete | All commands implemented |
 | **Tailscale Auth** | ✅ Complete | Peer verification (Tailscale-only, no fallback) |
-| **Test Suite** | ✅ Complete | 80 tests (unit, integration, e2e) |
-| **Desktop App** | ✅ Complete | UI + embedded orchestrator + real IPC integration |
-| **Terminal I/O** | 🔄 Needs Testing | Infrastructure complete, end-to-end flow needs verification |
+| **Test Suite** | ✅ Complete | 120+ tests (unit, integration, e2e), all passing |
+| **Desktop App** | ✅ Complete | Full UI with pane splitting, embedded orchestrator, real IPC integration |
+| **Terminal I/O** | ✅ Complete | Bidirectional PTY streaming via xterm.js |
+| **Security Hardening** | ✅ Complete | Input validation, session ownership, resource limits, IPC authentication |
+| **Protocol Versioning** | ✅ Complete | Version field in Register message for compatibility |
 
 The primary use case is managing distributed Claude Code sessions across lab servers, development machines, and research infrastructure. However, k-Terminus is architected as a general-purpose tool suitable for any workflow requiring coordinated terminal access across multiple systems.
 
@@ -206,9 +208,28 @@ Multiple terminal sessions are multiplexed over a single SSH tunnel using a ligh
 | **SessionClose** | 0x05 | Terminate session |
 | **Heartbeat** | 0x06 | Keep-alive ping |
 | **HeartbeatAck** | 0x07 | Keep-alive pong |
-| **Register** | 0x08 | Agent registration with machine info |
+| **Register** | 0x08 | Agent registration with machine info and protocol version |
 | **RegisterAck** | 0x09 | Registration acknowledgment |
 | **Error** | 0xFF | Error response |
+
+### Protocol Version
+
+The Register message includes an optional `version` field for protocol compatibility:
+
+```rust
+Register {
+    machine_id: String,
+    hostname: String,
+    os: String,
+    arch: String,
+    version: Option<String>,  // e.g., "1.0"
+}
+```
+
+This enables:
+- Graceful version negotiation between agent and orchestrator
+- Feature detection based on agent capabilities
+- Logging of protocol version distribution
 
 ### 4.3 Authentication & Security
 
@@ -227,6 +248,22 @@ Multiple terminal sessions are multiplexed over a single SSH tunnel using a ligh
 - Orchestrator only accepts connections from same Tailscale network
 - No credential storage on remote machines (key-based auth only)
 - Session isolation: Each session runs in separate PTY with distinct process context
+- Input validation: Session input limited to 64KB, frame payloads limited to 16MB
+- Session ownership: Sessions are bound to their creating machine, preventing cross-machine access
+- Resource limits: Configurable max_connections and max_sessions_per_machine
+
+#### Session Lifecycle
+
+Sessions follow a defined lifecycle with automatic cleanup:
+
+1. **Creation**: Session created via IPC, assigned to machine, PTY spawned on agent
+2. **Active**: Terminal I/O flows bidirectionally, resize events propagated
+3. **Termination**: Session closed explicitly or when:
+   - User closes session via CLI/GUI
+   - Agent disconnects (all sessions for that machine are cleaned up)
+   - Orchestrator shuts down (all sessions terminated)
+
+The `remove_by_machine()` function ensures clean session removal when an agent disconnects, preventing orphaned sessions and resource leaks.
 
 ### 4.4 Network Layer (Tailscale Integration)
 
@@ -325,7 +362,7 @@ Configuration stored in TOML format with hierarchical organization.
 
 #### Orchestrator Configuration
 
-- **bind_address**: Listen address for reverse tunnel connections (default: `0.0.0.0:2222`)
+- **bind_address**: Listen address for reverse tunnel connections (default: `127.0.0.1:2222`)
 - **host_key_path**: Path to SSH host key file
 - **tailscale_hostname**: Tailscale device hostname (auto-populated by setup)
 - **heartbeat_interval**: Seconds between heartbeats (default: 30)
@@ -343,6 +380,7 @@ Configuration stored in TOML format with hierarchical organization.
 
 ```toml
 [orchestrator]
+# Default is 127.0.0.1:2222; use 0.0.0.0:2222 for network access
 bind_address = "0.0.0.0:2222"
 host_key_path = "~/.config/k-terminus/host_key"
 
@@ -425,7 +463,7 @@ $ k-terminus connect lab-gpu-01
 
 Both machines must be on the same Tailscale network. That's it - no OAuth setup, no manual key copying.
 
-#### Advanced Usage (Planned)
+#### Advanced Usage
 
 ```bash
 # List sessions with filtering
@@ -440,7 +478,7 @@ Sessions: 3 active
 Uptime: 2d 5h 12m
 
 # Kill a session
-$ k-terminus kill lab-gpu-01:session-3
+$ k-terminus kill session-a1b2c3
 Session terminated
 ```
 
@@ -448,11 +486,9 @@ Session terminated
 
 ## 7. Desktop Application (Tauri)
 
-> **Implementation Status:** The desktop app UI is complete but uses mock data. Backend integration (IPC to orchestrator, terminal streaming) is not yet implemented.
-
 ### 7.1 Architecture
 
-The desktop GUI is built with Tauri 2.0, providing a native application with web-based UI.
+The desktop GUI is built with Tauri 2.0, providing a native application with web-based UI. The app includes an embedded orchestrator that starts automatically when needed.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -460,14 +496,22 @@ The desktop GUI is built with Tauri 2.0, providing a native application with web
 │  ┌────────────────────┐    ┌─────────────────────────────┐ │
 │  │   Rust Backend     │    │      Web Frontend           │ │
 │  │                    │    │                             │ │
-│  │  • IPC to          │◄──►│  • React 18 + TypeScript    │ │
+│  │  • Embedded        │◄──►│  • React 18 + TypeScript    │ │
 │  │    Orchestrator    │    │  • xterm.js terminals       │ │
-│  │  • Session mgmt    │    │  • Tailwind CSS styling     │ │
+│  │  • IPC client      │    │  • Tailwind CSS styling     │ │
 │  │  • Event streaming │    │  • Zustand state mgmt       │ │
+│  │  • Session relay   │    │  • react-resizable-panels   │ │
 │  │                    │    │                             │ │
 │  └────────────────────┘    └─────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Orchestrator Lifecycle:**
+- On startup, checks if an orchestrator is already running (via IPC ping)
+- If running, connects as a client
+- If not running, starts an embedded orchestrator
+- PID file management for daemon mode
+- Graceful shutdown on app exit
 
 ### 7.2 Frontend Stack
 
@@ -477,18 +521,58 @@ The desktop GUI is built with Tauri 2.0, providing a native application with web
 | **TypeScript** | Type-safe JavaScript |
 | **xterm.js** | Terminal emulation (GPU-accelerated via WebGL) |
 | **Tailwind CSS** | Utility-first styling |
-| **Zustand** | Lightweight state management |
+| **Zustand** | Lightweight state management with persist middleware |
 | **React Flow** | Network topology visualization |
+| **react-resizable-panels** | Pane splitting and resizing |
+| **@tanstack/react-virtual** | Virtual scrolling for large lists |
 
 ### 7.3 UI Components
 
 | View | Description |
 |------|-------------|
-| **Terminals** | Tabbed terminal interface with xterm.js, one tab per session |
+| **Terminals** | Pane-based terminal interface with xterm.js, splittable horizontally/vertically |
 | **Topology** | Visual graph showing orchestrator and connected machines |
 | **Health** | Real-time metrics dashboard (uptime, connections, sessions) |
 | **Logs** | Searchable log viewer with filtering |
-| **Sidebar** | Machine list with status, session management |
+| **Sidebar** | Machine list with virtual scrolling, clickable tag filtering |
+
+### 7.3.1 Pane Layout System
+
+The terminal view uses a recursive tree-based layout system for flexible pane management:
+
+```
+Layout Tree Example:
+      split-h
+      /     \
+   pane1   split-v
+           /     \
+        pane2   pane3
+
+Renders as:
+┌─────────┬─────────┐
+│         │  pane2  │
+│  pane1  ├─────────┤
+│         │  pane3  │
+└─────────┴─────────┘
+```
+
+**Layout Features:**
+- **Split panes**: Cmd+D (horizontal), Cmd+Shift+D (vertical)
+- **Drag-and-drop**: Drag tabs to pane edges to create splits
+- **Close panes**: Cmd+W closes the focused pane
+- **Focus cycling**: Cmd+] / Cmd+[ to navigate between panes
+- **Persistence**: Layout saved to localStorage and restored across sessions
+
+**Cross-Platform Shortcuts:**
+| Action | macOS | Windows/Linux |
+|--------|-------|---------------|
+| Split Right | `Cmd+D` | `Ctrl+Shift+D` |
+| Split Down | `Cmd+Shift+D` | `Ctrl+Shift+Alt+D` |
+| Close Pane | `Cmd+W` | `Ctrl+Shift+W` |
+| Focus Next | `Cmd+]` | `Ctrl+Shift+]` |
+| Focus Prev | `Cmd+[` | `Ctrl+Shift+[` |
+
+Windows/Linux uses `Ctrl+Shift+` prefix to avoid conflicts with terminal shortcuts like `Ctrl+D` (EOF) and `Ctrl+W` (delete word).
 
 ### 7.4 Terminal Features
 
@@ -502,26 +586,30 @@ The desktop GUI is built with Tauri 2.0, providing a native application with web
 
 ### 7.5 Tauri Commands
 
-| Command | Status | Description |
-|---------|--------|-------------|
-| `get_status` | ✅ Mock | Returns orchestrator status (demo data) |
-| `start_orchestrator` | ✅ Mock | Adds demo machines to state |
-| `stop_orchestrator` | ✅ Mock | Clears state |
-| `list_machines` | ✅ Mock | Returns machines from state |
-| `create_session` | ✅ Mock | Creates session in state (no real PTY) |
-| `kill_session` | ✅ Mock | Removes session from state |
-| `terminal_write` | ❌ Stub | Logs only, doesn't send to PTY |
-| `terminal_resize` | ❌ Stub | Logs only, doesn't resize PTY |
+| Command | Description |
+|---------|-------------|
+| `get_status` | Returns orchestrator status (uptime, connections, sessions) |
+| `start_orchestrator` | Starts embedded orchestrator or connects to existing |
+| `stop_orchestrator` | Stops orchestrator and disconnects all agents |
+| `list_machines` | Returns connected machines with status |
+| `create_session` | Creates PTY session on specified machine |
+| `kill_session` | Terminates session and closes PTY |
+| `terminal_write` | Sends input to session PTY |
+| `terminal_resize` | Updates PTY window dimensions |
+| `subscribe_to_session` | Starts streaming output for a session |
+| `disconnect_machine` | Disconnects a specific agent |
 
-### 7.6 Event System (Planned)
+### 7.6 Event System
 
-Real-time updates via Tauri events (not yet implemented):
+Real-time updates via Tauri events:
 
-| Event | Payload |
-|-------|---------|
-| `machine-connected` | Machine info |
-| `machine-disconnected` | Machine ID |
-| `terminal-output:{sessionId}` | PTY output bytes |
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `machine-connected` | Machine info | Agent connected to orchestrator |
+| `machine-disconnected` | Machine ID | Agent disconnected |
+| `terminal-output` | `{session_id, data}` | PTY output bytes (Base64) |
+| `session-closed` | Session ID | Session terminated |
+| `ipc-error` | Error message | IPC communication failure |
 
 ---
 
@@ -572,29 +660,55 @@ kt-desktop (Tauri)
 
 ## 9. Future Enhancements
 
-### 9.1 Phase 1 (Post-MVP)
+### 9.1 Version 1.0 (In Progress)
 
-- Session persistence: Reconnect to sessions after orchestrator restart
-- Session recording: Capture terminal output for replay/audit
+**High Impact:**
+- Search in terminal: Cmd+F to search scrollback buffer
+- Tab switching: Cmd+1-9 to jump to tab by number
+- Font zoom: Cmd+/Cmd- to adjust terminal font size
+- Tab renaming: Double-click tab to rename
+- Settings panel: Light/dark/system theme toggle, font size
+
+**Medium Impact:**
+- Tab reordering: Drag tabs in tab bar to reorder
+- Machine aliases: Rename machines from the UI (persisted to orchestrator)
+- Activity indicator: Show output activity for background tabs
+- Connection status: Show reconnecting progress
+- Bell notification: System notification on terminal bell (optional)
+
+**Polish:**
+- Keyboard shortcuts help: Cmd+? shows shortcut cheatsheet
+- About/version: Version info, update status
+- Welcome/onboarding: First-run guidance for pairing
+
+**Advanced:**
+- Drag-to-upload: Drop file on pane to upload to remote cwd
+- Session persistence: Sessions survive orchestrator restart
+
+### 9.2 Post-1.0 Features
+
+- Session sharing: Multiple users attach to same session (opt-in, read-only default)
+- File download UI: Browse remote filesystem, download locally
 - Bandwidth throttling: Rate limiting for constrained networks
-- Advanced filtering: Query machines by capabilities, load, tags
 - Health checks: Automated testing of remote machine availability
+- Load balancing: Distribute sessions across machines with same tag
 
-### 9.2 Phase 2 (Advanced Features)
-
-- Session sharing: Multiple users attach to same session (tmux-style)
-- File transfer: SCP-like functionality over tunnels
-- Port forwarding: Expose remote services through tunnel
-- Load balancing: Distribute sessions across multiple machines with same tag
-- Metrics collection: Resource usage tracking (CPU, memory, network)
-
-### 9.3 Phase 3 (Ecosystem Integration)
+### 9.3 Ecosystem Integration
 
 - Claude Code integration: First-class support as Claude Code transport
 - VS Code extension: Terminal provider for remote development
 - API server: REST/gRPC API for programmatic access
-- Plugin system: Extensibility for custom transport protocols
 - Kubernetes operator: Manage distributed sessions in containerized environments
+
+### 9.4 Features Not Implementing
+
+| Feature | Reason |
+|---------|--------|
+| **Session recording** | Security risk: creates persistent artifacts containing passwords, secrets, and sensitive data |
+| **Port forwarding** | Unnecessary: Tailscale provides `tailscale serve` and `tailscale funnel` for this purpose |
+| **Full file transfer UI** | Standard tools (scp, rsync) work over Tailscale; minimal drag-to-upload is sufficient |
+
+See [SECURITY.md](../../SECURITY.md) for detailed rationale.
 
 ---
 

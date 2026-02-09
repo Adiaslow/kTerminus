@@ -2,10 +2,14 @@
   "name": "k-terminus",
   "version": "0.1.0",
   "description": "Seamless multi-machine terminal access",
+  "private": true,
   "scripts": {
-    "start": "npm run dev",
-    "dev": "cd apps/kt-desktop && npm run tauri:dev",
-    "build": "cd apps/kt-desktop && npm run tauri:build",
-    "postinstall": "cd apps/kt-desktop && npm install"
+    "dev": "pnpm --filter kt-desktop tauri:dev",
+    "build": "pnpm --filter kt-desktop tauri:build",
+    "preview": "pnpm --filter kt-desktop preview",
+    "web": "pnpm --filter kt-desktop dev",
+    "test": "cargo test --workspace",
+    "lint": "cargo clippy --workspace",
+    "clean": "cargo clean && pnpm --filter kt-desktop exec rm -rf dist"
   }
 }

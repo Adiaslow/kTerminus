@@ -20,9 +20,16 @@ export const useMachinesStore = create<MachinesState>((set) => ({
   setMachines: (machines) => set({ machines }),
 
   addMachine: (machine) =>
-    set((state) => ({
-      machines: [...state.machines, machine],
-    })),
+    set((state) => {
+      // Prevent duplicate machines by checking ID
+      if (state.machines.some((m) => m.id === machine.id)) {
+        console.warn(`[machines] Attempted to add duplicate machine with id: ${machine.id}`);
+        return state; // Return unchanged state
+      }
+      return {
+        machines: [...state.machines, machine],
+      };
+    }),
 
   updateMachine: (id, updates) =>
     set((state) => ({

@@ -1,19 +1,10 @@
 import { useAppStore } from "../../stores/app";
 import { useMachinesStore } from "../../stores/machines";
+import { formatUptime } from "../../lib/utils";
 
 export function HealthView() {
   const status = useAppStore((s) => s.orchestratorStatus);
   const machines = useMachinesStore((s) => s.machines);
-
-  const formatUptime = (secs: number) => {
-    const days = Math.floor(secs / 86400);
-    const hours = Math.floor((secs % 86400) / 3600);
-    const mins = Math.floor((secs % 3600) / 60);
-
-    if (days > 0) return `${days}d ${hours}h`;
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-  };
 
   return (
     <div className="h-full p-6 overflow-auto">
@@ -21,7 +12,7 @@ export function HealthView() {
 
       {/* Orchestrator Status */}
       <section className="mb-8">
-        <h2 className="text-lg font-medium mb-4 text-terminal-fg/80">
+        <h2 className="text-lg font-medium mb-4 text-text-secondary">
           Orchestrator
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -47,12 +38,12 @@ export function HealthView() {
 
       {/* Machine Health */}
       <section>
-        <h2 className="text-lg font-medium mb-4 text-terminal-fg/80">
+        <h2 className="text-lg font-medium mb-4 text-text-secondary">
           Machines ({machines.length})
         </h2>
         <div className="space-y-3">
           {machines.length === 0 ? (
-            <p className="text-terminal-fg/50">No machines connected</p>
+            <p className="text-text-muted">No machines connected</p>
           ) : (
             machines.map((machine) => (
               <MachineHealthCard key={machine.id} machine={machine} />
@@ -74,16 +65,16 @@ function MetricCard({
   status?: "good" | "bad" | "warn";
 }) {
   const statusColors = {
-    good: "text-terminal-green",
-    bad: "text-terminal-red",
-    warn: "text-terminal-yellow",
+    good: "text-sage",
+    bad: "text-terracotta",
+    warn: "text-ochre",
   };
 
   return (
-    <div className="bg-sidebar-bg rounded-lg p-4 border border-sidebar-active">
-      <div className="text-sm text-terminal-fg/60 mb-1">{label}</div>
+    <div className="bg-bg-surface rounded p-4 border-2 border-border-faint">
+      <div className="text-sm text-text-muted mb-1">{label}</div>
       <div
-        className={`text-lg font-medium ${status ? statusColors[status] : ""}`}
+        className={`text-lg font-medium ${status ? statusColors[status] : "text-text-primary"}`}
       >
         {value}
       </div>
@@ -97,23 +88,23 @@ function MachineHealthCard({
   machine: { id: string; hostname: string; os: string; status: string; sessionCount: number };
 }) {
   return (
-    <div className="bg-sidebar-bg rounded-lg p-4 border border-sidebar-active flex items-center gap-4">
+    <div className="bg-bg-surface rounded p-4 border-2 border-border-faint flex items-center gap-4">
       <div
         className={`w-3 h-3 rounded-full ${
           machine.status === "connected"
-            ? "bg-terminal-green"
+            ? "bg-sage"
             : machine.status === "connecting"
-            ? "bg-terminal-yellow animate-pulse"
-            : "bg-terminal-red"
+            ? "bg-ochre animate-breathe"
+            : "bg-terracotta-dim"
         }`}
       />
       <div className="flex-1">
-        <div className="font-medium">{machine.hostname}</div>
-        <div className="text-sm text-terminal-fg/60">
+        <div className="font-medium text-text-primary">{machine.hostname}</div>
+        <div className="text-sm text-text-muted">
           {machine.os} • {machine.sessionCount} sessions
         </div>
       </div>
-      <div className="text-sm text-terminal-fg/50">{machine.id.slice(0, 8)}</div>
+      <div className="text-sm text-text-ghost">{machine.id.slice(0, 8)}</div>
     </div>
   );
 }

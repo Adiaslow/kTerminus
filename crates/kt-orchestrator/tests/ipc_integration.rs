@@ -87,6 +87,21 @@ impl TestClient {
 
         serde_json::from_str(&response_line).expect("Failed to parse response")
     }
+
+    /// Authenticate with the IPC server using the provided token
+    async fn authenticate(&mut self, token: &str) {
+        let response = self
+            .send_request(IpcRequest::Authenticate {
+                token: token.to_string(),
+                client_id: None,
+            })
+            .await;
+        assert!(
+            matches!(response, IpcResponse::Authenticated { epoch_id: _, current_seq: _ }),
+            "Authentication failed: {:?}",
+            response
+        );
+    }
 }
 
 #[tokio::test]
@@ -95,7 +110,7 @@ async fn test_ipc_ping_pong() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
     let server_clone = Arc::clone(&server);
 
     // Start server in background
@@ -109,7 +124,7 @@ async fn test_ipc_ping_pong() {
     // Connect client
     let mut client = TestClient::connect(&address).await;
 
-    // Send ping
+    // Send ping (doesn't require authentication)
     let response = client.send_request(IpcRequest::Ping).await;
     assert!(matches!(response, IpcResponse::Pong));
 
@@ -123,7 +138,8 @@ async fn test_ipc_get_status() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -133,6 +149,7 @@ async fn test_ipc_get_status() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
     let response = client.send_request(IpcRequest::GetStatus).await;
 
@@ -154,7 +171,8 @@ async fn test_ipc_list_machines_empty() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -164,6 +182,7 @@ async fn test_ipc_list_machines_empty() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
     let response = client.send_request(IpcRequest::ListMachines).await;
 
@@ -183,7 +202,8 @@ async fn test_ipc_list_sessions_empty() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -193,6 +213,7 @@ async fn test_ipc_list_sessions_empty() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
     let response = client
         .send_request(IpcRequest::ListSessions { machine_id: None })
@@ -214,7 +235,8 @@ async fn test_ipc_get_machine_not_found() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -224,6 +246,7 @@ async fn test_ipc_get_machine_not_found() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
     let response = client
         .send_request(IpcRequest::GetMachine {
@@ -247,7 +270,8 @@ async fn test_ipc_create_session_machine_not_found() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -257,6 +281,7 @@ async fn test_ipc_create_session_machine_not_found() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
     let response = client
         .send_request(IpcRequest::CreateSession {
@@ -283,7 +308,8 @@ async fn test_ipc_shutdown() {
     let cancel = CancellationToken::new();
 
     let server =
-        Arc::new(IpcServer::new(address.clone(), state).with_shutdown_token(cancel.clone()));
+        Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server").with_shutdown_token(cancel.clone()));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -293,6 +319,7 @@ async fn test_ipc_shutdown() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
     let response = client.send_request(IpcRequest::Shutdown).await;
     assert!(matches!(response, IpcResponse::Ok));
@@ -309,7 +336,12 @@ async fn test_ipc_subscribe_unsubscribe() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    // Create a test session first (sessions must exist for subscription)
+    let machine_id = kt_core::types::MachineId::new("test-machine");
+    let session_id = state.coordinator.sessions.create(machine_id, None);
+
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -319,11 +351,12 @@ async fn test_ipc_subscribe_unsubscribe() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
-    // Subscribe
+    // Subscribe to existing session
     let response = client
         .send_request(IpcRequest::Subscribe {
-            session_id: "session-1".to_string(),
+            session_id: session_id.to_string(),
         })
         .await;
     assert!(matches!(response, IpcResponse::Ok));
@@ -331,10 +364,18 @@ async fn test_ipc_subscribe_unsubscribe() {
     // Unsubscribe
     let response = client
         .send_request(IpcRequest::Unsubscribe {
-            session_id: "session-1".to_string(),
+            session_id: session_id.to_string(),
         })
         .await;
     assert!(matches!(response, IpcResponse::Ok));
+
+    // Subscribe to non-existent session should fail
+    let response = client
+        .send_request(IpcRequest::Subscribe {
+            session_id: "session-999".to_string(),
+        })
+        .await;
+    assert!(matches!(response, IpcResponse::Error { .. }));
 
     server_handle.abort();
 }
@@ -345,7 +386,8 @@ async fn test_ipc_multiple_requests() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -355,8 +397,9 @@ async fn test_ipc_multiple_requests() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
 
-    // Send multiple requests on same connection
+    // Send multiple requests on same connection (ping doesn't need auth but we're already authenticated)
     for _ in 0..5 {
         let response = client.send_request(IpcRequest::Ping).await;
         assert!(matches!(response, IpcResponse::Pong));
@@ -381,7 +424,7 @@ async fn test_ipc_concurrent_clients() {
     let address = format!("127.0.0.1:{}", port);
     let state = create_test_state();
 
-    let server = Arc::new(IpcServer::new(address.clone(), state));
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
     let server_clone = Arc::clone(&server);
 
     let server_handle = tokio::spawn(async move {
@@ -397,7 +440,7 @@ async fn test_ipc_concurrent_clients() {
         handles.push(tokio::spawn(async move {
             let mut client = TestClient::connect(&addr).await;
 
-            // Each client sends multiple pings
+            // Each client sends multiple pings (no auth needed for ping)
             for _ in 0..3 {
                 let response = client.send_request(IpcRequest::Ping).await;
                 assert!(
@@ -418,6 +461,168 @@ async fn test_ipc_concurrent_clients() {
     .await;
 
     assert!(result.is_ok(), "Concurrent client test timed out");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn test_ipc_get_pairing_code() {
+    let port = get_test_port();
+    let address = format!("127.0.0.1:{}", port);
+    let state = create_test_state();
+
+    // Get the pairing code from state for comparison
+    let expected_code = state.pairing_code().to_string();
+
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
+    let server_clone = Arc::clone(&server);
+
+    let server_handle = tokio::spawn(async move {
+        let _ = server_clone.run().await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
+
+    let response = client.send_request(IpcRequest::GetPairingCode).await;
+
+    match response {
+        IpcResponse::PairingCode { code } => {
+            assert_eq!(code, expected_code);
+            // Pairing code is now 8 characters (Issue #16: increased entropy)
+            assert_eq!(code.len(), 8);
+            // Verify code only contains allowed characters
+            assert!(code.chars().all(|c| "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains(c)));
+        }
+        other => panic!("Expected PairingCode response, got {:?}", other),
+    }
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn test_ipc_verify_pairing_code_valid() {
+    let port = get_test_port();
+    let address = format!("127.0.0.1:{}", port);
+    let state = create_test_state();
+
+    // Get the actual pairing code from state
+    let correct_code = state.pairing_code().to_string();
+
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
+    let server_clone = Arc::clone(&server);
+
+    let server_handle = tokio::spawn(async move {
+        let _ = server_clone.run().await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
+
+    // Test with correct code
+    let response = client
+        .send_request(IpcRequest::VerifyPairingCode {
+            code: correct_code.clone(),
+        })
+        .await;
+
+    match response {
+        IpcResponse::PairingCodeValid { valid } => {
+            assert!(valid, "Correct pairing code should be valid");
+        }
+        other => panic!("Expected PairingCodeValid response, got {:?}", other),
+    }
+
+    // Test with lowercase (should still work - case insensitive)
+    let response = client
+        .send_request(IpcRequest::VerifyPairingCode {
+            code: correct_code.to_lowercase(),
+        })
+        .await;
+
+    match response {
+        IpcResponse::PairingCodeValid { valid } => {
+            assert!(valid, "Lowercase pairing code should be valid");
+        }
+        other => panic!("Expected PairingCodeValid response, got {:?}", other),
+    }
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn test_ipc_verify_pairing_code_invalid() {
+    let port = get_test_port();
+    let address = format!("127.0.0.1:{}", port);
+    let state = create_test_state();
+
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
+    let server_clone = Arc::clone(&server);
+
+    let server_handle = tokio::spawn(async move {
+        let _ = server_clone.run().await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
+
+    // Test with wrong code
+    let response = client
+        .send_request(IpcRequest::VerifyPairingCode {
+            code: "ZZZZZZ".to_string(),
+        })
+        .await;
+
+    match response {
+        IpcResponse::PairingCodeValid { valid } => {
+            assert!(!valid, "Wrong pairing code should be invalid");
+        }
+        other => panic!("Expected PairingCodeValid response, got {:?}", other),
+    }
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn test_ipc_status_includes_pairing_code() {
+    let port = get_test_port();
+    let address = format!("127.0.0.1:{}", port);
+    let state = create_test_state();
+
+    // Get the pairing code from state for comparison
+    let expected_code = state.pairing_code().to_string();
+
+    let server = Arc::new(IpcServer::new(address.clone(), state).expect("Failed to create IPC server"));
+    let auth_token = server.auth_token().to_string();
+    let server_clone = Arc::clone(&server);
+
+    let server_handle = tokio::spawn(async move {
+        let _ = server_clone.run().await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut client = TestClient::connect(&address).await;
+    client.authenticate(&auth_token).await;
+
+    let response = client.send_request(IpcRequest::GetStatus).await;
+
+    match response {
+        IpcResponse::Status(status) => {
+            assert!(status.running);
+            assert_eq!(status.pairing_code, Some(expected_code));
+        }
+        other => panic!("Expected Status response, got {:?}", other),
+    }
 
     server_handle.abort();
 }

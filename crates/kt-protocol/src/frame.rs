@@ -4,6 +4,20 @@
 //! - session_id: 4 bytes (u32, big-endian)
 //! - message_type: 1 byte (u8)
 //! - payload_length: 3 bytes (u24, big-endian, max 16MB)
+//!
+//! # Security: Payload Size Limit
+//!
+//! The 24-bit length field limits payloads to 16MB (`MAX_PAYLOAD_SIZE`).
+//! This is enforced at the protocol level to prevent:
+//!
+//! - **Memory exhaustion**: Large allocations from malicious frames
+//! - **DoS attacks**: Resource consumption via oversized payloads
+//! - **Buffer overflow**: Bounded allocation sizes
+//!
+//! The IPC layer enforces a stricter limit (64KB) for session input,
+//! but the protocol layer allows larger payloads for:
+//! - Large terminal output (build logs, data dumps)
+//! - Future features (file transfer, bulk data)
 
 use bytes::{Buf, BufMut, BytesMut};
 
@@ -11,10 +25,29 @@ use crate::error::ProtocolError;
 use crate::message::MessageType;
 use crate::session::SessionId;
 
-/// Size of the frame header in bytes
+/// Size of the frame header in bytes.
 pub const HEADER_SIZE: usize = 8;
 
-/// Maximum payload size (16MB - 1, limited by 24-bit length field)
+/// Maximum payload size (16MB - 1, limited by 24-bit length field).
+///
+/// This constant defines the maximum size of any protocol message payload.
+/// It is enforced at the protocol level by the frame header's 24-bit length field.
+///
+/// # Security
+///
+/// This limit prevents:
+/// - Memory exhaustion from allocating huge buffers
+/// - DoS attacks via resource consumption
+/// - Integer overflow in length calculations
+///
+/// # Value
+///
+/// 16MB (minus 1 byte for the 24-bit max) is chosen to:
+/// - Allow large terminal output (build logs, data dumps)
+/// - Support future features (file transfer)
+/// - Stay within reasonable memory bounds
+///
+/// Note: The IPC layer enforces a stricter 64KB limit for session input.
 pub const MAX_PAYLOAD_SIZE: usize = 0x00FF_FFFF;
 
 /// Frame header containing routing and length information

@@ -70,6 +70,16 @@ impl From<kt_core::ipc::SessionInfo> for Session {
     }
 }
 
+/// State snapshot for frontend synchronization
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StateSnapshot {
+    pub epoch_id: String,
+    pub current_seq: u64,
+    pub machines: Vec<Machine>,
+    pub sessions: Vec<Session>,
+}
+
 /// Orchestrator status for frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +90,8 @@ pub struct OrchestratorStatus {
     pub session_count: usize,
     pub version: String,
     pub tailscale_hostname: Option<String>,
+    pub pairing_code: Option<String>,
+    pub bind_address: Option<String>,
 }
 
 impl From<kt_core::ipc::OrchestratorStatus> for OrchestratorStatus {
@@ -91,6 +103,8 @@ impl From<kt_core::ipc::OrchestratorStatus> for OrchestratorStatus {
             session_count: status.session_count,
             version: status.version,
             tailscale_hostname: status.tailscale_hostname,
+            pairing_code: status.pairing_code,
+            bind_address: Some(status.bind_address),
         }
     }
 }
@@ -104,6 +118,8 @@ impl Default for OrchestratorStatus {
             session_count: 0,
             version: env!("CARGO_PKG_VERSION").to_string(),
             tailscale_hostname: None,
+            pairing_code: None,
+            bind_address: None,
         }
     }
 }
@@ -120,6 +136,30 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<OrchestratorStatus
             tracing::debug!("Orchestrator not running: {}", e);
             Ok(OrchestratorStatus::default())
         }
+    }
+}
+
+/// Get full state snapshot for synchronization
+///
+/// Returns the current epoch, sequence number, and all machines/sessions.
+/// Used for initial sync and recovery after event gaps.
+#[tauri::command]
+pub async fn get_state_snapshot(state: State<'_, AppState>) -> Result<StateSnapshot, String> {
+    match state.ipc.request(IpcRequest::GetStateSnapshot).await {
+        Ok(IpcResponse::StateSnapshot {
+            epoch_id,
+            current_seq,
+            machines,
+            sessions,
+        }) => Ok(StateSnapshot {
+            epoch_id,
+            current_seq,
+            machines: machines.into_iter().map(Into::into).collect(),
+            sessions: sessions.into_iter().map(Into::into).collect(),
+        }),
+        Ok(IpcResponse::Error { message }) => Err(message),
+        Ok(_) => Err("Unexpected response from orchestrator".to_string()),
+        Err(e) => Err(format!("Failed to get state snapshot: {}", e)),
     }
 }
 

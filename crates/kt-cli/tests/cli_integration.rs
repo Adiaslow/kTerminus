@@ -6,7 +6,8 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 fn k_terminus() -> Command {
-    Command::cargo_bin("k-terminus").unwrap()
+    Command::cargo_bin("k-terminus")
+        .expect("Failed to locate k-terminus binary - ensure it's built before running tests")
 }
 
 #[test]
@@ -96,9 +97,9 @@ fn test_cli_unknown_command() {
 }
 
 #[test]
-#[ignore] // Requires running orchestrator - run with: cargo test -- --ignored
 fn test_cli_list() {
-    // The CLI auto-starts the orchestrator if needed, so this should succeed
+    // The CLI auto-starts the orchestrator if needed, so this should succeed.
+    // Uses default port 22230 - run with --test-threads=1 to avoid conflicts.
     k_terminus()
         .arg("list")
         .assert()
@@ -107,9 +108,9 @@ fn test_cli_list() {
 }
 
 #[test]
-#[ignore] // Requires running orchestrator - run with: cargo test -- --ignored
 fn test_cli_status() {
-    // The CLI auto-starts the orchestrator if needed, so this should succeed
+    // The CLI auto-starts the orchestrator if needed, so this should succeed.
+    // Uses default port 22230 - run with --test-threads=1 to avoid conflicts.
     k_terminus()
         .arg("status")
         .assert()

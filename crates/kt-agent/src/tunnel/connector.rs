@@ -19,6 +19,21 @@ use kt_protocol::{Frame, FrameCodec, Message, SessionId, TerminalSize};
 
 use super::reconnect::ExponentialBackoff;
 
+/// Channel capacity for events from the orchestrator.
+///
+/// This buffer holds events (session create, data, resize, etc.) between
+/// the SSH data handler and the main agent loop.
+///
+/// # Value Choice
+///
+/// 256 provides headroom for:
+/// - Burst commands from orchestrator (multiple session ops)
+/// - Brief delays in agent processing (e.g., PTY operations)
+///
+/// Too small: Risk of dropped events during high activity
+/// Too large: Memory usage when agent is slow
+const TUNNEL_EVENT_CHANNEL_CAPACITY: usize = 256;
+
 /// Connection errors that may require special handling
 #[derive(Debug, Error)]
 pub enum ConnectionError {
@@ -124,7 +139,7 @@ impl TunnelConnector {
         let ssh_config = Arc::new(ssh_config);
 
         // Create the client handler
-        let (event_tx, event_rx) = mpsc::channel(256);
+        let (event_tx, event_rx) = mpsc::channel(TUNNEL_EVENT_CHANNEL_CAPACITY);
         let handler = ClientHandler::new(self.config.orchestrator_host_key.clone(), event_tx);
 
         // Connect to the orchestrator
@@ -251,6 +266,7 @@ impl ActiveTunnel {
             hostname,
             os: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
+            version: Some(kt_protocol::PROTOCOL_VERSION.to_string()),
         };
 
         self.send_message(SessionId::CONTROL, message).await

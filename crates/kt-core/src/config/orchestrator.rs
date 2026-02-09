@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use super::serde_utils::duration_secs;
 use super::MachineProfile;
 
 /// Configuration for the orchestrator daemon
@@ -15,11 +16,11 @@ pub struct OrchestratorConfig {
     pub bind_address: String,
 
     /// Heartbeat interval in seconds
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_secs")]
     pub heartbeat_interval: Duration,
 
     /// Heartbeat timeout (how long to wait before considering connection dead)
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_secs")]
     pub heartbeat_timeout: Duration,
 
     /// Path to the host key file
@@ -50,7 +51,8 @@ impl Default for OrchestratorConfig {
         let config_dir = super::default_config_dir();
 
         Self {
-            bind_address: "0.0.0.0:2222".to_string(),
+            // Default to localhost for security - use "0.0.0.0:2222" for network access
+            bind_address: "127.0.0.1:2222".to_string(),
             heartbeat_interval: Duration::from_secs(30),
             heartbeat_timeout: Duration::from_secs(90),
             host_key_path: config_dir.join("host_key"),
@@ -75,11 +77,11 @@ impl OrchestratorConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackoffConfig {
     /// Initial delay
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_secs")]
     pub initial: Duration,
 
     /// Maximum delay
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_secs")]
     pub max: Duration,
 
     /// Multiplier for each retry
@@ -97,26 +99,5 @@ impl Default for BackoffConfig {
             multiplier: 2.0,
             jitter: 0.25,
         }
-    }
-}
-
-// Helper module for Duration serialization with humantime
-mod humantime_serde {
-    use serde::{self, Deserialize, Deserializer, Serializer};
-    use std::time::Duration;
-
-    pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u64(duration.as_secs())
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let secs = u64::deserialize(deserializer)?;
-        Ok(Duration::from_secs(secs))
     }
 }

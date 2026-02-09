@@ -1,3 +1,4 @@
+// @refresh reset
 import { create } from "zustand";
 import type { TerminalTab, Session } from "../types";
 
@@ -9,7 +10,7 @@ interface TerminalsState {
   // Actions
   addTab: (tab: TerminalTab) => void;
   removeTab: (id: string) => void;
-  setActiveTab: (id: string) => void;
+  setActiveTab: (id: string | null) => void;
   updateTabTitle: (id: string, title: string) => void;
   addSession: (session: Session) => void;
   removeSession: (sessionId: string) => void;
@@ -21,10 +22,23 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
   sessions: new Map(),
 
   addTab: (tab) =>
-    set((state) => ({
-      tabs: [...state.tabs.map((t) => ({ ...t, active: false })), { ...tab, active: true }],
-      activeTabId: tab.id,
-    })),
+    set((state) => {
+      console.info("[terminals] addTab:", tab.id, new Error().stack?.split('\n').slice(0, 5).join('\n'));
+      // Prevent duplicate tabs by checking ID
+      if (state.tabs.some((t) => t.id === tab.id)) {
+        console.warn(`[terminals] Attempted to add duplicate tab with id: ${tab.id}`);
+        return state; // Return unchanged state
+      }
+      // Also check for duplicate sessionId to prevent orphaned tabs
+      if (state.tabs.some((t) => t.sessionId === tab.sessionId)) {
+        console.warn(`[terminals] Attempted to add tab with duplicate sessionId: ${tab.sessionId}`);
+        return state; // Return unchanged state
+      }
+      return {
+        tabs: [...state.tabs, tab],
+        activeTabId: tab.id,
+      };
+    }),
 
   removeTab: (id) =>
     set((state) => {
@@ -37,7 +51,6 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
         if (newTabs.length > 0) {
           const newIndex = Math.min(index, newTabs.length - 1);
           newActiveId = newTabs[newIndex].id;
-          newTabs[newIndex].active = true;
         } else {
           newActiveId = null;
         }
@@ -47,8 +60,7 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
     }),
 
   setActiveTab: (id) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) => ({ ...t, active: t.id === id })),
+    set(() => ({
       activeTabId: id,
     })),
 
@@ -59,6 +71,10 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 
   addSession: (session) =>
     set((state) => {
+      // Warn if session already exists (may be a reconnection, which is fine)
+      if (state.sessions.has(session.id)) {
+        console.warn(`[terminals] Session with id already exists, updating: ${session.id}`);
+      }
       const newSessions = new Map(state.sessions);
       newSessions.set(session.id, session);
       return { sessions: newSessions };
@@ -71,3 +87,19 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
       return { sessions: newSessions };
     }),
 }));
+
+// Reset terminals on HMR to prevent stale state
+// Also reset layout since it depends on terminals
+if (import.meta.hot) {
+  import.meta.hot.accept(async () => {
+    // Reset terminals store
+    useTerminalsStore.setState({
+      tabs: [],
+      activeTabId: null,
+      sessions: new Map(),
+    });
+    // Also reset layout store to prevent stale pane references
+    const { useLayoutStore } = await import("./layout");
+    useLayoutStore.getState().resetLayout();
+  });
+}

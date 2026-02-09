@@ -8,6 +8,7 @@ import type {
   SessionEvent,
   TerminalOutputEvent,
 } from "../types";
+import type { StateSnapshot } from "../stores/sync";
 
 // Orchestrator commands
 export async function getStatus(): Promise<OrchestratorStatus> {
@@ -41,6 +42,7 @@ export async function listSessions(machineId?: string): Promise<Session[]> {
 }
 
 export async function createSession(machineId: string, shell?: string): Promise<Session> {
+  console.info("[tauri] createSession:", machineId, "appReady:", window.__appReady);
   return invoke("create_session", { machineId, shell });
 }
 
@@ -107,4 +109,9 @@ export function stringToBytes(str: string): Uint8Array {
 // Utility to convert Uint8Array to string for terminal output
 export function bytesToString(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
+}
+
+// State synchronization commands
+export async function getStateSnapshot(): Promise<StateSnapshot> {
+  return invoke("get_state_snapshot");
 }

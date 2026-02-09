@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
+use kt_core::time::current_time_millis;
+
 use super::pool::AgentCommand;
 use crate::state::OrchestratorState;
 
@@ -43,13 +45,11 @@ impl HealthMonitor {
                 tokio::select! {
                     _ = ticker.tick() => {
                         // Get current timestamp
-                        let timestamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64;
+                        let timestamp = current_time_millis();
 
                         // Send heartbeat to all connections and check health
-                        let connections = state.connections.list();
+                        // Use coordinator.connections for proper state management
+                        let connections = state.coordinator.connections.list();
                         for conn in connections {
                             // Check if connection is healthy
                             if !conn.is_healthy(timeout) {
@@ -58,16 +58,40 @@ impl HealthMonitor {
                                     conn.machine_id,
                                     timeout
                                 );
+
+                                // Clean up all sessions for this machine BEFORE removing the connection
+                                // to prevent orphaned sessions (atomic cleanup)
+                                // Use coordinator.sessions for proper state management
+                                let sessions = state.coordinator.sessions.list_for_machine(&conn.machine_id);
+                                for session in sessions {
+                                    // Use try_close() CAS to ensure only one cleanup path wins
+                                    // This prevents races between health monitor, cleanup task, and disconnect handler
+                                    if session.try_close() {
+                                        tracing::debug!(
+                                            "Cleaning up orphaned session {} for unhealthy connection {}",
+                                            session.id,
+                                            conn.machine_id
+                                        );
+                                        state.coordinator.sessions.remove(session.id);
+                                    }
+                                    // If try_close() returns false, another cleanup path already claimed this session
+                                }
+
                                 conn.disconnect();
-                                state.connections.remove(&conn.machine_id);
+                                state.coordinator.connections.remove(&conn.machine_id);
                                 continue;
                             }
 
-                            // Send heartbeat
+                            // Send heartbeat using try_send to avoid blocking the health monitor.
+                            // If the channel is full (backpressure), the heartbeat is dropped
+                            // and logged. This indicates the agent is not processing commands
+                            // fast enough, which will eventually trigger an unhealthy state
+                            // when heartbeat acks stop arriving.
                             let command = AgentCommand::Heartbeat { timestamp };
                             if let Err(e) = conn.command_tx.try_send(command) {
                                 tracing::warn!(
-                                    "Failed to send heartbeat to {}: {}",
+                                    "Command channel backpressure for {}: failed to send heartbeat ({}). \
+                                     Agent may not be processing commands fast enough.",
                                     conn.machine_id,
                                     e
                                 );

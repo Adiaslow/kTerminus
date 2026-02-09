@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use kt_agent::pty::PtyManager;
@@ -39,6 +40,11 @@ struct Args {
     #[arg(short, long)]
     orchestrator: Option<String>,
 
+    /// Pairing code from orchestrator (auto-discovers orchestrator)
+    /// Example: ABC123
+    #[arg(long)]
+    code: Option<String>,
+
     /// Path to private key (auto-generated if not specified)
     #[arg(short, long)]
     key: Option<PathBuf>,
@@ -58,6 +64,10 @@ struct Args {
     /// Path to configuration file
     #[arg(short, long)]
     config: Option<PathBuf>,
+
+    /// Local testing mode - skip Tailscale requirement
+    #[arg(long)]
+    local: bool,
 }
 
 #[tokio::main]
@@ -79,27 +89,33 @@ async fn main() -> Result<()> {
 
     tracing::info!("k-Terminus Agent starting...");
 
-    // Check Tailscale is available
-    let ts_info = tailscale::get_tailscale_info()
-        .context("Failed to check Tailscale status")?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Tailscale is not installed.\n\n{}",
-                tailscale::get_install_instructions()
-            )
-        })?;
+    // Check Tailscale (skip in local mode)
+    let ts_info = if args.local {
+        tracing::info!("Local testing mode - skipping Tailscale check");
+        None
+    } else {
+        let info = tailscale::get_tailscale_info()
+            .context("Failed to check Tailscale status")?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Tailscale is not installed.\n\n{}\n\nFor local testing, use --local flag.",
+                    tailscale::get_install_instructions()
+                )
+            })?;
 
-    if !ts_info.logged_in {
-        anyhow::bail!(
-            "Tailscale is not logged in. Please run:\n\n    sudo tailscale up\n\nThen try again."
+        if !info.logged_in {
+            anyhow::bail!(
+                "Tailscale is not logged in. Please run:\n\n    sudo tailscale up\n\nThen try again.\n\nFor local testing, use --local flag."
+            );
+        }
+
+        tracing::info!(
+            "Tailscale connected: {} ({})",
+            info.device_name,
+            info.ip
         );
-    }
-
-    tracing::info!(
-        "Tailscale connected: {} ({})",
-        ts_info.device_name,
-        ts_info.ip
-    );
+        Some(info)
+    };
 
     // Load configuration
     let config_path = args
@@ -118,14 +134,55 @@ async fn main() -> Result<()> {
 
     // Apply command-line overrides
     if let Some(orchestrator) = args.orchestrator {
-        // Resolve short name to full Tailscale hostname
-        let resolved = tailscale::resolve_device_name(&orchestrator, &ts_info.tailnet);
+        let resolved = if let Some(ref ts) = ts_info {
+            // Resolve short name to full Tailscale hostname
+            tailscale::resolve_device_name(&orchestrator, &ts.tailnet)
+        } else {
+            // Local mode - use address as-is
+            orchestrator
+        };
         // Add default port if not specified
         config.orchestrator_address = if resolved.contains(':') {
             resolved
         } else {
             format!("{}:2222", resolved)
         };
+    } else if let Some(code) = args.code {
+        // Use pairing code discovery
+        if args.local {
+            anyhow::bail!("Pairing code discovery requires Tailscale (cannot use --local with --code)");
+        }
+
+        let discovered = kt_agent::discover_orchestrator(&code).await
+            .context("Failed to discover orchestrator")?;
+
+        tracing::info!(
+            "Discovered orchestrator: {} ({})",
+            discovered.peer.device_name,
+            discovered.ssh_address
+        );
+        config.orchestrator_address = discovered.ssh_address;
+    } else if config.orchestrator_address.is_empty() {
+        // No orchestrator specified and not in config - prompt for pairing code
+        if args.local {
+            anyhow::bail!(
+                "No orchestrator specified. Use --orchestrator <hostname> to specify the orchestrator address."
+            );
+        }
+
+        tracing::info!("No orchestrator specified. Starting pairing code discovery...");
+        let code = kt_agent::prompt_pairing_code()
+            .context("Failed to get pairing code")?;
+
+        let discovered = kt_agent::discover_orchestrator(&code).await
+            .context("Failed to discover orchestrator")?;
+
+        tracing::info!(
+            "Discovered orchestrator: {} ({})",
+            discovered.peer.device_name,
+            discovered.ssh_address
+        );
+        config.orchestrator_address = discovered.ssh_address;
     }
     if let Some(key) = args.key {
         config.private_key_path = key;
@@ -189,8 +246,8 @@ async fn main() -> Result<()> {
         // Create channel for PTY output (reader tasks -> event loop)
         let (pty_output_tx, pty_output_rx) = mpsc::channel::<PtyOutput>(256);
 
-        // Track reader tasks for cleanup
-        let reader_tasks: HashMap<SessionId, JoinHandle<()>> = HashMap::new();
+        // Track reader tasks and their cancellation tokens for cleanup
+        let reader_tasks: HashMap<SessionId, (JoinHandle<()>, CancellationToken)> = HashMap::new();
 
         // Event loop
         let disconnect_reason = run_event_loop(
@@ -224,7 +281,7 @@ async fn run_event_loop(
     pty_manager: Arc<Mutex<PtyManager>>,
     pty_output_tx: mpsc::Sender<PtyOutput>,
     mut pty_output_rx: mpsc::Receiver<PtyOutput>,
-    mut reader_tasks: HashMap<SessionId, JoinHandle<()>>,
+    mut reader_tasks: HashMap<SessionId, (JoinHandle<()>, CancellationToken)>,
 ) -> String {
     loop {
         tokio::select! {
@@ -240,17 +297,30 @@ async fn run_event_loop(
                         if accepted {
                             tracing::info!("Registration accepted by orchestrator");
                         } else {
-                            tracing::error!("Registration rejected: {:?}", reason);
-                            // Wait for all reader tasks to finish (with timeout)
-                            for (session_id, handle) in reader_tasks.drain() {
-                                handle.abort();
+                            // Issue #18: Detect and handle protocol version mismatch
+                            let reason_str = reason.as_deref().unwrap_or("Unknown reason");
+
+                            if reason_str.contains("Protocol version mismatch") {
+                                tracing::error!(
+                                    "Protocol version mismatch detected!\n\
+                                     {}\n\
+                                     Please update the agent to match the orchestrator version.",
+                                    reason_str
+                                );
+                            } else {
+                                tracing::error!("Registration rejected: {}", reason_str);
+                            }
+
+                            // Gracefully cancel all reader tasks and wait for cleanup
+                            for (session_id, (handle, cancel_token)) in reader_tasks.drain() {
+                                cancel_token.cancel();
                                 let _ = tokio::time::timeout(
-                                    std::time::Duration::from_millis(100),
+                                    std::time::Duration::from_millis(500),
                                     handle
                                 ).await;
                                 tracing::debug!("Reader task cleaned up for session {} on rejection", session_id);
                             }
-                            return format!("Registration rejected: {:?}", reason);
+                            return format!("Registration rejected: {}", reason_str);
                         }
                     }
 
@@ -269,8 +339,9 @@ async fn run_event_loop(
                                 match manager.take_reader(session_id) {
                                     Ok(reader) => {
                                         let tx = pty_output_tx.clone();
-                                        let handle = spawn_pty_reader(session_id, reader, tx);
-                                        reader_tasks.insert(session_id, handle);
+                                        let cancel_token = CancellationToken::new();
+                                        let handle = spawn_pty_reader(session_id, reader, tx, cancel_token.clone());
+                                        reader_tasks.insert(session_id, (handle, cancel_token));
                                         tracing::debug!("Spawned reader task for session {}", session_id);
                                     }
                                     Err(e) => {
@@ -316,10 +387,12 @@ async fn run_event_loop(
                         };
 
                         // Now wait for the reader task to finish (with timeout)
-                        if let Some(handle) = reader_tasks.remove(&session_id) {
-                            // Give the reader task time to notice the PTY closed
+                        if let Some((handle, cancel_token)) = reader_tasks.remove(&session_id) {
+                            // Signal the reader to stop gracefully
+                            cancel_token.cancel();
+                            // Give the reader task time to finish (increased timeout for graceful shutdown)
                             let _ = tokio::time::timeout(
-                                std::time::Duration::from_millis(100),
+                                std::time::Duration::from_millis(500),
                                 handle
                             ).await;
                             tracing::debug!("Reader task cleaned up for session {}", session_id);
@@ -339,11 +412,11 @@ async fn run_event_loop(
                     }
 
                     TunnelEvent::Disconnected => {
-                        // Wait for all reader tasks to finish (with timeout)
-                        for (session_id, handle) in reader_tasks.drain() {
-                            handle.abort();
+                        // Gracefully cancel all reader tasks and wait for cleanup
+                        for (session_id, (handle, cancel_token)) in reader_tasks.drain() {
+                            cancel_token.cancel();
                             let _ = tokio::time::timeout(
-                                std::time::Duration::from_millis(100),
+                                std::time::Duration::from_millis(500),
                                 handle
                             ).await;
                             tracing::debug!("Reader task cleaned up for session {} on disconnect", session_id);
@@ -369,9 +442,10 @@ async fn run_event_loop(
 
                 // Clean up reader tasks and notify orchestrator (outside the lock)
                 for (session_id, exit_code) in exited_sessions {
-                    if let Some(handle) = reader_tasks.remove(&session_id) {
+                    if let Some((handle, cancel_token)) = reader_tasks.remove(&session_id) {
+                        cancel_token.cancel();
                         let _ = tokio::time::timeout(
-                            std::time::Duration::from_millis(100),
+                            std::time::Duration::from_millis(500),
                             handle
                         ).await;
                     }
@@ -401,16 +475,26 @@ async fn run_event_loop(
     }
 }
 
-/// Spawn a blocking task to read from a PTY and send output to the channel
+/// Spawn a blocking task to read from a PTY and send output to the channel.
+///
+/// Uses a `CancellationToken` for graceful shutdown instead of task abort.
+/// The token is checked between reads to allow clean termination.
 fn spawn_pty_reader(
     session_id: SessionId,
     mut reader: Box<dyn Read + Send>,
     tx: mpsc::Sender<PtyOutput>,
+    cancel_token: CancellationToken,
 ) -> JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 4096];
 
         loop {
+            // Check for cancellation before each read
+            if cancel_token.is_cancelled() {
+                tracing::debug!("PTY reader cancelled for session {}", session_id);
+                break;
+            }
+
             match reader.read(&mut buf) {
                 Ok(0) => {
                     // EOF - PTY closed
@@ -426,8 +510,10 @@ fn spawn_pty_reader(
                     }
                 }
                 Err(e) => {
-                    // Check if it's a "normal" error from PTY closing
-                    if e.kind() == std::io::ErrorKind::Other
+                    // Check if it's a "normal" error from PTY closing or due to cancellation
+                    if cancel_token.is_cancelled() {
+                        tracing::debug!("PTY reader stopped for session {} (cancelled)", session_id);
+                    } else if e.kind() == std::io::ErrorKind::Other
                         || e.kind() == std::io::ErrorKind::BrokenPipe
                     {
                         tracing::debug!("PTY reader closed for session {}: {}", session_id, e);
@@ -438,6 +524,8 @@ fn spawn_pty_reader(
                 }
             }
         }
+
+        tracing::debug!("PTY reader task exiting cleanly for session {}", session_id);
     })
 }
 

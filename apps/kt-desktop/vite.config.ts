@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // Don't open browser - Tauri handles the window
+    open: false,
     watch: {
       // Tell vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],

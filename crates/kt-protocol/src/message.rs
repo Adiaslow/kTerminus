@@ -1,7 +1,40 @@
 //! Message types for the k-Terminus protocol
+//!
+//! This module defines the high-level protocol messages exchanged between
+//! agents and the orchestrator. Messages are serialized into frames using
+//! the codec defined in `codec.rs`.
+//!
+//! # Protocol Version
+//!
+//! The protocol version is communicated in the `Register` message via the
+//! optional `version` field. This enables:
+//!
+//! - **Version negotiation**: Orchestrator can reject incompatible agents
+//! - **Feature detection**: Enable features based on agent capabilities
+//! - **Compatibility logging**: Track protocol versions in deployments
+//!
+//! Current protocol version: 1.0
+//!
+//! # Message Flow
+//!
+//! Typical message sequence for a session:
+//!
+//! 1. Agent connects and sends `Register` (with optional version)
+//! 2. Orchestrator responds with `RegisterAck`
+//! 3. Orchestrator sends `Heartbeat` periodically, agent responds with `HeartbeatAck`
+//! 4. To create a session: Orchestrator sends `SessionCreate`, agent responds with `SessionReady`
+//! 5. Terminal I/O: `Data` messages flow bidirectionally
+//! 6. Window resize: `Resize` from orchestrator
+//! 7. Session end: `SessionClose` (can be sent by either side)
 
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+
+/// Current protocol version string.
+///
+/// This should be included in Register messages to enable version negotiation.
+/// Format: "MAJOR.MINOR" where MAJOR changes indicate breaking changes.
+pub const PROTOCOL_VERSION: &str = "1.0";
 
 /// Terminal dimensions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,16 +174,30 @@ pub enum Message {
         timestamp: u64,
     },
 
-    /// Agent registration
+    /// Agent registration.
+    ///
+    /// Sent by the agent immediately after connecting to identify itself.
+    /// The orchestrator responds with `RegisterAck`.
+    ///
+    /// # Protocol Versioning
+    ///
+    /// The optional `version` field enables protocol version negotiation:
+    /// - If present, orchestrator can check compatibility
+    /// - If absent, orchestrator assumes protocol version 1.0
+    /// - Version mismatch may result in `RegisterAck { accepted: false }`
     Register {
-        /// Machine ID (derived from public key fingerprint)
+        /// Machine ID (derived from public key fingerprint or Tailscale identity)
         machine_id: String,
-        /// Hostname
+        /// Hostname of the agent machine
         hostname: String,
-        /// Operating system
+        /// Operating system (e.g., "linux", "darwin", "windows")
         os: String,
-        /// Architecture
+        /// CPU architecture (e.g., "x86_64", "aarch64")
         arch: String,
+        /// Protocol version (e.g., "1.0"). Optional for backward compatibility.
+        /// Use `PROTOCOL_VERSION` constant when sending.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
     },
 
     /// Registration acknowledgment

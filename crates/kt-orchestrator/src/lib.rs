@@ -7,9 +7,11 @@
 
 pub mod auth;
 pub mod connection;
+pub mod coordinator;
 pub mod ipc;
 pub mod server;
 pub mod session;
 pub mod state;
 
+pub use coordinator::StateCoordinator;
 pub use state::OrchestratorState;

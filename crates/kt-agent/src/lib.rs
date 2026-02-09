@@ -5,8 +5,10 @@
 //! sessions and streams I/O over the multiplexed tunnel.
 
 pub mod metrics;
+pub mod pairing;
 pub mod pty;
 pub mod state;
 pub mod tunnel;
 
+pub use pairing::{discover_orchestrator, prompt_pairing_code, DiscoveredOrchestrator};
 pub use state::AgentState;

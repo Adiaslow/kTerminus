@@ -121,8 +121,10 @@ fn setup_tailscale() -> Result<Option<TailscaleInfo>> {
             Ok(false) | Err(_) => {
                 // Auto-install failed or not supported, show instructions
                 tracing::warn!("Could not auto-install Tailscale");
-                println!("\n{}\n", tailscale::get_install_instructions());
-                println!("After installing Tailscale, run 'k-terminus setup' again.\n");
+                tracing::info!(
+                    "Installation instructions:\n{}\nAfter installing Tailscale, run 'k-terminus setup' again.",
+                    tailscale::get_install_instructions()
+                );
                 return Ok(None);
             }
         }
@@ -140,11 +142,8 @@ fn setup_tailscale() -> Result<Option<TailscaleInfo>> {
 
             match tailscale::start_tailscale_auth() {
                 Ok(Some(url)) => {
-                    println!("\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    println!("  Tailscale authentication required");
-                    println!("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    println!("\n  Open this URL to authenticate:\n");
-                    println!("    {}\n", url);
+                    tracing::info!("Tailscale authentication required");
+                    tracing::info!("Open this URL to authenticate: {}", url);
 
                     // Try to open browser
                     #[cfg(target_os = "macos")]
@@ -154,7 +153,7 @@ fn setup_tailscale() -> Result<Option<TailscaleInfo>> {
                     #[cfg(target_os = "windows")]
                     let _ = Command::new("cmd").args(["/c", "start", &url]).spawn();
 
-                    println!("  Waiting for authentication...\n");
+                    tracing::info!("Waiting for authentication...");
 
                     // Poll for authentication (blocking, up to 5 minutes)
                     let start = std::time::Instant::now();
@@ -171,8 +170,7 @@ fn setup_tailscale() -> Result<Option<TailscaleInfo>> {
                         }
                     }
 
-                    tracing::warn!("Timeout waiting for Tailscale authentication");
-                    println!("  Timeout waiting for authentication. Run setup again after authenticating.\n");
+                    tracing::warn!("Timeout waiting for Tailscale authentication. Run setup again after authenticating.");
                     Ok(None)
                 }
                 Ok(None) => {
@@ -185,8 +183,10 @@ fn setup_tailscale() -> Result<Option<TailscaleInfo>> {
                     Ok(None)
                 }
                 Err(e) => {
-                    tracing::warn!("Tailscale authentication error: {}", e);
-                    println!("\n  Run 'sudo tailscale up' manually, then run 'k-terminus setup' again.\n");
+                    tracing::warn!(
+                        "Tailscale authentication error: {}. Run 'sudo tailscale up' manually, then run 'k-terminus setup' again.",
+                        e
+                    );
                     Ok(None)
                 }
             }
@@ -196,12 +196,17 @@ fn setup_tailscale() -> Result<Option<TailscaleInfo>> {
 
 /// Generate an ED25519 SSH key pair
 fn generate_ed25519_key(path: &Path, comment: &str) -> Result<()> {
+    // Convert path to string, handling non-UTF8 paths gracefully
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Key path contains invalid UTF-8: {:?}", path))?;
+
     let status = Command::new("ssh-keygen")
         .args([
             "-t",
             "ed25519",
             "-f",
-            path.to_str().unwrap(),
+            path_str,
             "-N",
             "", // No passphrase
             "-C",

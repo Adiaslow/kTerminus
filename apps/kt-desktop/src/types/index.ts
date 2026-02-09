@@ -29,7 +29,7 @@ export interface TerminalTab {
   sessionId: string;
   machineId: string;
   title: string;
-  active: boolean;
+  // Note: 'active' state is tracked via activeTabId in terminals store, not per-tab
 }
 
 // Orchestrator status
@@ -40,6 +40,8 @@ export interface OrchestratorStatus {
   sessionCount: number;
   version: string;
   tailscaleHostname?: string;
+  pairingCode?: string;
+  bindAddress?: string;
 }
 
 // IPC message types (for Tauri commands)
@@ -94,3 +96,13 @@ export interface OrchestratorNode {
 }
 
 export type TopologyNode = MachineNode | OrchestratorNode;
+
+// Layout types for terminal splitting
+export type {
+  SplitDirection,
+  PaneLeaf,
+  SplitContainer,
+  LayoutNode,
+  PaneLayout,
+  DropPosition,
+} from "./layout";

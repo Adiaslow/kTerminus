@@ -1,0 +1,1883 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>k-Terminus — Design System v2</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300;1,9..40,400&display=swap');
+
+        /* ═══════════════════════════════════════════════
+     k-Terminus Design Tokens v2
+     Zen Brutalism · 間 (Ma) · Natural Mauves
+     ═══════════════════════════════════════════════ */
+
+        :root {
+            /* ── Ground · Like poured concrete at dusk ── */
+            --bg-void: #15121a;
+            --bg-deep: #1a161e;
+            --bg-base: #201b24;
+            --bg-surface: #282230;
+            --bg-elevated: #322b3a;
+            --bg-hover: #3a3244;
+
+            /* ── Mauve · Light through the slit ── */
+            --mauve-deep: #5e4757;
+            --mauve: #9b7489;
+            --mauve-mid: #b8909f;
+            --mauve-light: #d4b0bf;
+            --mauve-wash: rgba(155, 116, 137, 0.07);
+            --mauve-glow: rgba(155, 116, 137, 0.04);
+
+            /* ── Earth Semantics ── */
+            --sage: #8a9e78;
+            --sage-dim: #637556;
+            --sage-wash: rgba(138, 158, 120, 0.07);
+            --ochre: #c4976a;
+            --ochre-dim: #9a7550;
+            --ochre-wash: rgba(196, 151, 106, 0.07);
+            --terracotta: #b56e6e;
+            --terracotta-dim: #8a5555;
+            --terracotta-wash: rgba(181, 110, 110, 0.07);
+
+            /* ── Text · Washi paper tones ── */
+            --text-primary: #ddd5d9;
+            --text-secondary: #9a8e92;
+            --text-muted: #665c60;
+            --text-ghost: #433b3f;
+            --text-whisper: #342e32;
+
+            /* ── Borders · Formwork lines ── */
+            --border-faint: #2e2734;
+            --border: #3a3240;
+            --border-strong: #4a4054;
+
+            /* ── Structural Params ── */
+            --border-w: 2px;
+            --border-w-heavy: 3px;
+            --shadow-x: 3px;
+            --shadow-y: 3px;
+            --radius: 3px;
+            --radius-lg: 4px;
+
+            /* ── Spacing · Ma (間) ── */
+            --space-xs: 6px;
+            --space-sm: 12px;
+            --space-md: 20px;
+            --space-lg: 32px;
+            --space-xl: 48px;
+            --space-2xl: 72px;
+
+            /* ── Fonts ── */
+            --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+            --font-sans: 'DM Sans', system-ui, sans-serif;
+
+            /* ── Texture ── */
+            --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg-void);
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        /* Subtle concrete texture overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: var(--noise);
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.4;
+        }
+
+        /* ═══════════════════════════════════════════════
+     Page Structure
+     ═══════════════════════════════════════════════ */
+
+        .page {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: var(--space-2xl) var(--space-lg);
+        }
+
+        .page-header {
+            margin-bottom: var(--space-2xl);
+            padding-bottom: var(--space-xl);
+            /* Single thin line — like a score in concrete */
+            border-bottom: 1px solid var(--border);
+        }
+
+        .page-header h1 {
+            font-family: var(--font-mono);
+            font-weight: 800;
+            font-size: 48px;
+            letter-spacing: -2px;
+            line-height: 1;
+            margin-bottom: var(--space-md);
+        }
+
+        .page-header h1 .k-prefix {
+            color: var(--mauve-mid);
+        }
+
+        .page-header h1 .dash {
+            color: var(--text-ghost);
+            font-weight: 300;
+        }
+
+        .page-header .subtitle {
+            font-family: var(--font-sans);
+            font-size: 15px;
+            color: var(--text-muted);
+            font-weight: 300;
+            letter-spacing: 0.3px;
+        }
+
+        .section {
+            margin-bottom: var(--space-2xl);
+        }
+
+        .section-title {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: var(--text-muted);
+            margin-bottom: var(--space-lg);
+            /* No border — just the text, floating in space. Ma. */
+        }
+
+        /* A thin accent line that appears beside certain elements
+     — like light entering through a precise cut */
+        .light-slit {
+            border-left: 2px solid var(--mauve-deep);
+            padding-left: var(--space-md);
+        }
+
+        /* ═══════════════════════════════════════════════
+     Color Palette
+     ═══════════════════════════════════════════════ */
+
+        .palette-group {
+            margin-bottom: var(--space-lg);
+        }
+
+        .palette-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--text-ghost);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: var(--space-sm);
+        }
+
+        .palette-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 2px;
+            /* Tight joints — like concrete formwork */
+        }
+
+        .swatch {
+            overflow: hidden;
+            transition: transform 0.2s ease;
+        }
+
+        .swatch:first-child {
+            border-radius: var(--radius) 0 0 var(--radius);
+        }
+
+        .swatch:last-child {
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+
+        .swatch-color {
+            height: 64px;
+        }
+
+        .swatch-info {
+            padding: var(--space-xs) 10px;
+            background: var(--bg-base);
+        }
+
+        .swatch-name {
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .swatch-hex {
+            font-size: 10px;
+            color: var(--text-ghost);
+        }
+
+        /* ═══════════════════════════════════════════════
+     Desktop App Mockup — Zen Brutalist
+     ═══════════════════════════════════════════════ */
+
+        .app-mockup {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            background: var(--bg-base);
+            /* Subtle, grounded shadow — weight, not drama */
+            box-shadow:
+                0 1px 2px rgba(0, 0, 0, 0.3),
+                0 8px 24px rgba(0, 0, 0, 0.25);
+        }
+
+        /* ── Titlebar — minimal, breathing ── */
+        .app-titlebar {
+            height: 38px;
+            background: var(--bg-deep);
+            border-bottom: 1px solid var(--border-faint);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 10px;
+        }
+
+        .traffic-lights {
+            display: flex;
+            gap: 8px;
+            margin-right: 8px;
+        }
+
+        .traffic-light {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .tl-close {
+            background: var(--terracotta);
+        }
+
+        .tl-minimize {
+            background: var(--ochre);
+        }
+
+        .tl-maximize {
+            background: var(--sage);
+        }
+
+        .app-title-text {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.3px;
+        }
+
+        /* ── Header — the engawa (縁側), threshold space ── */
+        .app-header {
+            height: 46px;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 var(--space-md);
+            gap: 8px;
+        }
+
+        .header-logo {
+            font-weight: 700;
+            font-size: 14px;
+            padding: 0 var(--space-sm);
+            letter-spacing: -0.3px;
+        }
+
+        .header-logo .k {
+            color: var(--mauve-mid);
+        }
+
+        .header-logo .dash {
+            color: var(--text-ghost);
+            font-weight: 300;
+        }
+
+        .header-logo .terminus {
+            color: var(--text-primary);
+        }
+
+        .header-divider {
+            width: 1px;
+            height: 18px;
+            background: var(--border);
+            margin: 0 var(--space-xs);
+        }
+
+        .header-tab {
+            padding: 7px 16px;
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-muted);
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            background: transparent;
+            font-family: var(--font-mono);
+        }
+
+        .header-tab:hover {
+            color: var(--text-secondary);
+            background: var(--bg-hover);
+        }
+
+        .header-tab.active {
+            color: var(--text-primary);
+            background: var(--bg-elevated);
+            font-weight: 500;
+        }
+
+        /* Active tab: a thin line of light at the bottom */
+        .header-tab.active::after {
+            content: '';
+            display: block;
+            margin-top: 4px;
+            height: 1px;
+            background: var(--mauve);
+            border-radius: 1px;
+            opacity: 0.6;
+        }
+
+        .header-spacer {
+            flex: 1;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 400;
+            color: var(--text-muted);
+            padding-right: var(--space-xs);
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+        }
+
+        .status-dot.connected {
+            background: var(--sage);
+        }
+
+        /* ── Body ── */
+        .app-body {
+            display: flex;
+            height: 540px;
+        }
+
+        /* ── Sidebar — like a tokonoma alcove ── */
+        .app-sidebar {
+            width: 248px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-faint);
+        }
+
+        .sidebar-tab {
+            flex: 1;
+            padding: 12px 0;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: var(--text-ghost);
+            font-family: var(--font-mono);
+            transition: all 0.15s;
+            position: relative;
+        }
+
+        .sidebar-tab.active {
+            color: var(--text-secondary);
+        }
+
+        /* Light slit under active tab */
+        .sidebar-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 30%;
+            right: 30%;
+            height: 1px;
+            background: var(--mauve);
+            opacity: 0.5;
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-sm);
+        }
+
+        /* ── Machine Cards — stones in a garden ── */
+        .machine-card {
+            border: var(--border-w) solid var(--border-faint);
+            border-radius: var(--radius);
+            padding: var(--space-sm) 14px;
+            margin-bottom: var(--space-xs);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            background: var(--bg-base);
+            position: relative;
+        }
+
+        .machine-card:hover {
+            border-color: var(--border);
+            background: var(--bg-elevated);
+        }
+
+        .machine-card.selected {
+            border-color: var(--mauve-deep);
+            background: var(--mauve-wash);
+        }
+
+        /* Light slit on selected card — like light entering from the left */
+        .machine-card.selected::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 8px;
+            bottom: 8px;
+            width: 2px;
+            background: var(--mauve);
+            border-radius: 1px;
+            opacity: 0.7;
+        }
+
+        .machine-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .machine-status {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .machine-status.connected {
+            background: var(--sage);
+        }
+
+        .machine-status.disconnected {
+            background: var(--terracotta-dim);
+        }
+
+        .machine-status.connecting {
+            background: var(--ochre);
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        /* Breathing, not pulsing — more organic */
+        @keyframes breathe {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.35;
+            }
+        }
+
+        .machine-name {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .machine-meta {
+            font-size: 10px;
+            color: var(--text-ghost);
+            margin-left: 14px;
+            font-weight: 400;
+        }
+
+        .machine-tags {
+            display: flex;
+            gap: 4px;
+            margin-top: var(--space-xs);
+            margin-left: 14px;
+        }
+
+        .machine-tag {
+            font-size: 9px;
+            font-weight: 600;
+            padding: 1px 6px;
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-muted);
+            background: transparent;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .machine-card.selected .machine-tag {
+            border-color: var(--mauve-deep);
+            color: var(--mauve-mid);
+        }
+
+        /* ── Terminal Area — the inner garden ── */
+        .app-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-base);
+        }
+
+        .terminal-tabs {
+            display: flex;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-faint);
+            padding: 0 var(--space-xs);
+        }
+
+        .terminal-tab {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-ghost);
+            cursor: pointer;
+            transition: all 0.12s;
+            font-family: var(--font-mono);
+            position: relative;
+        }
+
+        .terminal-tab:hover {
+            color: var(--text-muted);
+        }
+
+        .terminal-tab.active {
+            color: var(--text-secondary);
+        }
+
+        /* Thin light slit under active terminal tab */
+        .terminal-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 18px;
+            right: 18px;
+            height: 1px;
+            background: var(--mauve);
+            opacity: 0.4;
+        }
+
+        .tab-indicator {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--sage-dim);
+        }
+
+        .terminal-tab.active .tab-indicator {
+            background: var(--sage);
+        }
+
+        .tab-close {
+            opacity: 0;
+            font-size: 14px;
+            line-height: 1;
+            color: var(--text-ghost);
+            cursor: pointer;
+            transition: opacity 0.15s;
+            padding: 0 2px;
+        }
+
+        .terminal-tab:hover .tab-close {
+            opacity: 0.4;
+        }
+
+        .tab-close:hover {
+            opacity: 1 !important;
+            color: var(--terracotta);
+        }
+
+        /* ── Terminal Content — the void, where work happens ── */
+        .terminal-content {
+            flex: 1;
+            padding: var(--space-md);
+            font-size: 13px;
+            line-height: 1.75;
+            overflow-y: auto;
+            background: var(--bg-void);
+            /* The faintest glow — like moonlight on concrete */
+            background-image:
+                radial-gradient(ellipse at 15% 85%, var(--mauve-glow) 0%, transparent 50%);
+        }
+
+        .term-prompt {
+            color: var(--mauve);
+            font-weight: 500;
+        }
+
+        .term-machine {
+            color: var(--sage);
+            font-weight: 500;
+        }
+
+        .term-path {
+            color: var(--ochre);
+            font-weight: 400;
+        }
+
+        .term-cmd {
+            color: var(--text-primary);
+        }
+
+        .term-output {
+            color: var(--text-secondary);
+        }
+
+        .term-comment {
+            color: var(--text-ghost);
+            font-style: italic;
+            font-weight: 300;
+        }
+
+        .term-cursor {
+            display: inline-block;
+            width: 7px;
+            height: 15px;
+            background: var(--mauve-mid);
+            animation: blink 1.2s ease-in-out infinite;
+            vertical-align: text-bottom;
+            margin-left: 1px;
+            border-radius: 1px;
+            opacity: 0.8;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 0.8;
+            }
+
+            50% {
+                opacity: 0.15;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════
+     CLI Output
+     ═══════════════════════════════════════════════ */
+
+        .cli-mockup {
+            background: var(--bg-void);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+
+        .cli-chrome {
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-faint);
+            padding: 8px 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .cli-chrome-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .cli-chrome-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--bg-elevated);
+        }
+
+        .cli-chrome-title {
+            font-size: 11px;
+            color: var(--text-ghost);
+            margin-left: 8px;
+            font-weight: 400;
+        }
+
+        .cli-body {
+            padding: var(--space-md) var(--space-md);
+            font-size: 13px;
+            line-height: 1.75;
+        }
+
+        .cli-label {
+            color: var(--mauve);
+            font-weight: 600;
+        }
+
+        .cli-value {
+            color: var(--text-primary);
+        }
+
+        .cli-dim {
+            color: var(--text-ghost);
+        }
+
+        .cli-success {
+            color: var(--sage);
+        }
+
+        .cli-warn {
+            color: var(--ochre);
+        }
+
+        .cli-error {
+            color: var(--terracotta);
+        }
+
+        .cli-table {
+            margin: var(--space-sm) 0;
+            font-size: 12px;
+        }
+
+        .cli-table-border {
+            color: var(--border-strong);
+        }
+
+        .cli-table-header {
+            color: var(--text-muted);
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+
+        .cli-table-cell {
+            color: var(--text-secondary);
+        }
+
+        /* ═══════════════════════════════════════════════
+     Components — Objects placed with intention
+     ═══════════════════════════════════════════════ */
+
+        .components-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: var(--space-md);
+        }
+
+        .component-card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: var(--space-md);
+            background: var(--bg-surface);
+        }
+
+        .component-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--text-ghost);
+            margin-bottom: var(--space-sm);
+        }
+
+        /* ── Buttons — deliberate, weighted ── */
+        .btn-zen {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 500;
+            padding: 8px 18px;
+            border: var(--border-w) solid;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: all 0.12s ease;
+            display: inline-block;
+            margin: 4px;
+            position: relative;
+        }
+
+        .btn-zen:active {
+            transform: translate(1px, 1px);
+        }
+
+        .btn-primary-zen {
+            background: var(--mauve-deep);
+            color: var(--mauve-light);
+            border-color: var(--mauve);
+            box-shadow: 0 2px 8px rgba(155, 116, 137, 0.15);
+        }
+
+        .btn-primary-zen:hover {
+            background: var(--mauve);
+            color: var(--bg-deep);
+            box-shadow: 0 2px 12px rgba(155, 116, 137, 0.25);
+        }
+
+        .btn-secondary-zen {
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+            border-color: var(--border-strong);
+        }
+
+        .btn-secondary-zen:hover {
+            border-color: var(--mauve-deep);
+            color: var(--text-primary);
+        }
+
+        .btn-danger-zen {
+            background: transparent;
+            color: var(--terracotta);
+            border-color: var(--terracotta-dim);
+        }
+
+        .btn-danger-zen:hover {
+            background: var(--terracotta-wash);
+            border-color: var(--terracotta);
+        }
+
+        /* ── Tags — restrained, quiet ── */
+        .tag-zen {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 2px 8px;
+            border: 1px solid;
+            border-radius: 2px;
+            margin: 2px;
+        }
+
+        .tag-mauve {
+            color: var(--mauve-mid);
+            border-color: var(--mauve-deep);
+        }
+
+        .tag-sage {
+            color: var(--sage);
+            border-color: var(--sage-dim);
+        }
+
+        .tag-ochre {
+            color: var(--ochre);
+            border-color: var(--ochre-dim);
+        }
+
+        /* ── Badges ── */
+        .badge-zen {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 500;
+            padding: 4px 12px;
+            border-radius: var(--radius);
+        }
+
+        .badge-connected {
+            color: var(--sage);
+            background: var(--sage-wash);
+        }
+
+        .badge-disconnected {
+            color: var(--terracotta);
+            background: var(--terracotta-wash);
+        }
+
+        .badge-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* ── Input ── */
+        .input-zen {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 400;
+            padding: 9px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            width: 100%;
+            outline: none;
+            transition: all 0.15s;
+        }
+
+        .input-zen::placeholder {
+            color: var(--text-ghost);
+            font-weight: 300;
+        }
+
+        .input-zen:focus {
+            border-color: var(--mauve-deep);
+            /* The faintest glow — not a ring, just warmth */
+            box-shadow: 0 0 0 3px var(--mauve-wash);
+        }
+
+        /* ═══════════════════════════════════════════════
+     Typography Specimens
+     ═══════════════════════════════════════════════ */
+
+        .type-specimen {
+            padding: var(--space-lg);
+            border: 1px solid var(--border-faint);
+            border-radius: var(--radius);
+            background: var(--bg-surface);
+            margin-bottom: var(--space-md);
+        }
+
+        .type-label {
+            font-size: 9px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 2.5px;
+            color: var(--text-ghost);
+            margin-bottom: var(--space-sm);
+        }
+
+        .type-heading-xl {
+            font-family: var(--font-mono);
+            font-weight: 800;
+            font-size: 40px;
+            letter-spacing: -1.5px;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .type-heading-lg {
+            font-family: var(--font-mono);
+            font-weight: 500;
+            font-size: 18px;
+            color: var(--text-secondary);
+            letter-spacing: -0.3px;
+            margin-bottom: 8px;
+        }
+
+        .type-body {
+            font-family: var(--font-sans);
+            font-weight: 400;
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+
+        .type-code {
+            font-family: var(--font-mono);
+            font-weight: 400;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        /* ═══════════════════════════════════════════════
+     Logo
+     ═══════════════════════════════════════════════ */
+
+        .logo-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2px;
+        }
+
+        .logo-card {
+            padding: var(--space-xl) var(--space-lg);
+            text-align: center;
+        }
+
+        .logo-card.dark {
+            background: var(--bg-void);
+        }
+
+        .logo-card.mid {
+            background: var(--bg-surface);
+        }
+
+        .logo-card.accent {
+            background: var(--mauve-deep);
+            background-image: radial-gradient(ellipse at 50% 50%, rgba(180, 144, 159, 0.08) 0%, transparent 70%);
+        }
+
+        .logo-text {
+            font-family: var(--font-mono);
+            font-weight: 800;
+            font-size: 32px;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-text .k {
+            color: var(--mauve-mid);
+        }
+
+        .logo-text .d {
+            color: var(--text-ghost);
+            font-weight: 300;
+        }
+
+        .logo-text .t {
+            color: var(--text-primary);
+        }
+
+        .logo-card.accent .logo-text .k {
+            color: var(--mauve-light);
+        }
+
+        .logo-card.accent .logo-text .d {
+            color: rgba(255, 255, 255, 0.2);
+        }
+
+        .logo-variant-label {
+            font-size: 9px;
+            color: var(--text-ghost);
+            margin-top: var(--space-sm);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 500;
+        }
+
+        /* ═══════════════════════════════════════════════
+     Topology View — Karesansui (枯山水) — Dry Garden
+     ═══════════════════════════════════════════════ */
+
+        .topology-mockup {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            background: var(--bg-void);
+            height: 380px;
+            position: relative;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+
+        .topo-grid {
+            position: absolute;
+            inset: 0;
+            background-image:
+                radial-gradient(circle, var(--border-faint) 0.8px, transparent 0.8px);
+            background-size: 28px 28px;
+            opacity: 0.5;
+        }
+
+        /* Faint raked-garden lines */
+        .topo-garden {
+            position: absolute;
+            inset: 0;
+            background-image: repeating-linear-gradient(90deg,
+                    transparent,
+                    transparent 27px,
+                    var(--border-faint) 27px,
+                    var(--border-faint) 28px);
+            opacity: 0.15;
+        }
+
+        .topo-node {
+            position: absolute;
+            border: var(--border-w) solid var(--border);
+            border-radius: var(--radius);
+            background: var(--bg-surface);
+            padding: 14px 18px;
+            min-width: 150px;
+            transition: all 0.2s ease;
+        }
+
+        .topo-node:hover {
+            border-color: var(--border-strong);
+            background: var(--bg-elevated);
+        }
+
+        .topo-node.orchestrator {
+            border-color: var(--mauve-deep);
+        }
+
+        /* Light slit on orchestrator */
+        .topo-node.orchestrator::before {
+            content: '';
+            position: absolute;
+            left: -1px;
+            top: 10px;
+            bottom: 10px;
+            width: 2px;
+            background: var(--mauve);
+            border-radius: 1px;
+            opacity: 0.5;
+        }
+
+        .topo-node-label {
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-ghost);
+            margin-bottom: 4px;
+        }
+
+        .topo-node-title {
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .topo-node-meta {
+            font-size: 10px;
+            color: var(--text-ghost);
+            margin-top: 4px;
+            font-weight: 400;
+        }
+
+        /* Edges — thin, like raked lines connecting stones */
+        .topo-edge {
+            position: absolute;
+            border-top: 1px solid var(--border);
+        }
+
+        .topo-edge.active {
+            border-top-color: var(--sage-dim);
+            border-top-style: solid;
+        }
+
+        .topo-edge.inactive {
+            border-top-style: dashed;
+            border-top-color: var(--border-faint);
+        }
+
+        /* ═══════════════════════════════════════════════
+     Design Philosophy
+     ═══════════════════════════════════════════════ */
+
+        .philosophy-card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: var(--space-lg);
+            background: var(--bg-surface);
+            max-width: 740px;
+        }
+
+        .philosophy-card p {
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            margin-bottom: var(--space-sm);
+        }
+
+        .philosophy-card p:last-child {
+            margin-bottom: 0;
+        }
+
+        .philosophy-card strong {
+            color: var(--mauve-mid);
+            font-weight: 500;
+        }
+
+        .philosophy-card em {
+            color: var(--text-primary);
+            font-style: italic;
+        }
+
+        .philosophy-card code {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--mauve);
+            background: var(--mauve-wash);
+            padding: 1px 5px;
+            border-radius: 2px;
+        }
+
+        /* Japanese annotation */
+        .jp-annotation {
+            font-size: 11px;
+            color: var(--text-ghost);
+            font-weight: 300;
+            font-style: italic;
+        }
+
+        /* ═══════════════════════════════════════════════
+     Utilities
+     ═══════════════════════════════════════════════ */
+
+        .flex-gap {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-md);
+        }
+
+        .spacer-lg {
+            height: var(--space-lg);
+        }
+
+        .spacer-md {
+            height: var(--space-md);
+        }
+
+        @media (max-width: 900px) {
+            .two-col {
+                grid-template-columns: 1fr;
+            }
+
+            .logo-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .page {
+                padding: var(--space-lg) var(--space-md);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="page">
+
+        <!-- ═══════════ HEADER ═══════════ -->
+        <header class="page-header">
+            <h1><span class="k-prefix">k</span><span class="dash">-</span>Terminus</h1>
+            <p class="subtitle">Design System · Zen Brutalism · <span class="jp-annotation">間 (Ma) — the space
+                    between</span></p>
+        </header>
+
+        <!-- ═══════════ DESIGN PHILOSOPHY ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Philosophy</h2>
+
+            <div class="philosophy-card light-slit">
+                <p>
+                    <strong>Japanese brutalism</strong> treats raw material not as confrontation but as vessel.
+                    Tadao Ando's exposed concrete exists so that a thin slit of light has something to cut through.
+                    The brutality is in service of the serene.
+                </p>
+                <p>
+                    This design system applies that principle to infrastructure tooling. Borders are <em>formwork
+                        lines</em>
+                    — visible, honest, but quiet. The mauve accent appears sparingly, like <em>light through a precise
+                        cut
+                        in concrete</em>. Interactive objects have weight and presence like <em>stones placed in a dry
+                        garden</em>.
+                    Everything else is <code>間</code> — meaningful emptiness.
+                </p>
+                <p>
+                    Structural chrome is minimal: 1px borders, no shadows, no decoration. It recedes.
+                    Interactive elements — machine cards, buttons, topology nodes — have weight: 2px borders,
+                    subtle shadows, the full mauve accent. The terminal content is the innermost void — the
+                    quietest, most spacious layer where the actual work happens.
+                </p>
+            </div>
+        </section>
+
+        <!-- ═══════════ PALETTE ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Palette</h2>
+
+            <div class="palette-group">
+                <p class="palette-label">Ground · <span class="jp-annotation">地 (chi) — earth</span></p>
+                <div class="palette-grid">
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#15121a"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Void</div>
+                            <div class="swatch-hex">#15121a</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#1a161e"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Deep</div>
+                            <div class="swatch-hex">#1a161e</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#201b24"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Base</div>
+                            <div class="swatch-hex">#201b24</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#282230"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Surface</div>
+                            <div class="swatch-hex">#282230</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#322b3a"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Elevated</div>
+                            <div class="swatch-hex">#322b3a</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="palette-group">
+                <p class="palette-label">Light · <span class="jp-annotation">光 (hikari) — the slit in concrete</span>
+                </p>
+                <div class="palette-grid">
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#5e4757"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Mauve Deep</div>
+                            <div class="swatch-hex">#5e4757</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#9b7489"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Mauve</div>
+                            <div class="swatch-hex">#9b7489</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#b8909f"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Mauve Mid</div>
+                            <div class="swatch-hex">#b8909f</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#d4b0bf"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Mauve Light</div>
+                            <div class="swatch-hex">#d4b0bf</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="palette-group">
+                <p class="palette-label">Earth · <span class="jp-annotation">自然 (shizen) — nature</span></p>
+                <div class="palette-grid">
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#8a9e78"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Sage</div>
+                            <div class="swatch-hex">#8a9e78</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#c4976a"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Ochre</div>
+                            <div class="swatch-hex">#c4976a</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#b56e6e"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Terracotta</div>
+                            <div class="swatch-hex">#b56e6e</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="palette-group">
+                <p class="palette-label">Text · <span class="jp-annotation">和紙 (washi) — handmade paper</span></p>
+                <div class="palette-grid">
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#ddd5d9"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Primary</div>
+                            <div class="swatch-hex">#ddd5d9</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#9a8e92"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Secondary</div>
+                            <div class="swatch-hex">#9a8e92</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#665c60"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Muted</div>
+                            <div class="swatch-hex">#665c60</div>
+                        </div>
+                    </div>
+                    <div class="swatch">
+                        <div class="swatch-color" style="background:#433b3f"></div>
+                        <div class="swatch-info">
+                            <div class="swatch-name">Ghost</div>
+                            <div class="swatch-hex">#433b3f</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════ TYPOGRAPHY ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Typography</h2>
+
+            <div class="type-specimen">
+                <div class="type-label">Mono · JetBrains Mono</div>
+                <div class="type-heading-xl"><span style="color:var(--mauve-mid)">k</span><span
+                        style="color:var(--text-ghost);font-weight:300">-</span>Terminus</div>
+                <div class="type-heading-lg">Seamless multi-machine terminal access</div>
+                <div class="spacer-md"></div>
+                <div class="type-code">
+                    <span style="color:var(--text-ghost)">$</span> k-terminus serve <span
+                        style="color:var(--text-ghost)">--foreground</span>
+                </div>
+            </div>
+
+            <div class="type-specimen">
+                <div class="type-label">Sans · DM Sans · Body</div>
+                <div class="type-body">
+                    Manage terminal sessions across all your machines from one place — no manual SSH key copying, no
+                    port forwarding, no complex configuration. Tailscale gives you one secure network; k-Terminus gives
+                    you one terminal to manage them all.
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════ LOGO ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Wordmark</h2>
+
+            <div class="logo-grid"
+                style="border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;">
+                <div class="logo-card dark">
+                    <div class="logo-text"><span class="k">k</span><span class="d">-</span><span
+                            class="t">Terminus</span></div>
+                    <div class="logo-variant-label">On void</div>
+                </div>
+                <div class="logo-card mid">
+                    <div class="logo-text"><span class="k">k</span><span class="d">-</span><span
+                            class="t">Terminus</span></div>
+                    <div class="logo-variant-label">On surface</div>
+                </div>
+                <div class="logo-card accent">
+                    <div class="logo-text"><span class="k">k</span><span class="d">-</span><span
+                            class="t">Terminus</span></div>
+                    <div class="logo-variant-label">On accent</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════ COMPONENTS ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Components</h2>
+
+            <div class="components-grid">
+
+                <div class="component-card">
+                    <div class="component-label">Buttons</div>
+                    <div class="flex-gap">
+                        <button class="btn-zen btn-primary-zen">Connect</button>
+                        <button class="btn-zen btn-secondary-zen">Settings</button>
+                        <button class="btn-zen btn-danger-zen">Kill</button>
+                    </div>
+                </div>
+
+                <div class="component-card">
+                    <div class="component-label">Status</div>
+                    <div class="flex-gap">
+                        <span class="badge-zen badge-connected"><span class="badge-dot"></span>Connected</span>
+                        <span class="badge-zen badge-disconnected"><span class="badge-dot"></span>Offline</span>
+                    </div>
+                </div>
+
+                <div class="component-card">
+                    <div class="component-label">Tags</div>
+                    <div class="flex-gap">
+                        <span class="tag-zen tag-mauve">research</span>
+                        <span class="tag-zen tag-sage">linux</span>
+                        <span class="tag-zen tag-ochre">gpu</span>
+                    </div>
+                </div>
+
+                <div class="component-card">
+                    <div class="component-label">Input</div>
+                    <input class="input-zen" placeholder="Machine hostname..." />
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ═══════════ DESKTOP APP ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Desktop App · <span class="jp-annotation">内庭 (nainiwa) — inner garden</span></h2>
+
+            <div class="app-mockup">
+                <div class="app-titlebar">
+                    <div class="traffic-lights">
+                        <div class="traffic-light tl-close"></div>
+                        <div class="traffic-light tl-minimize"></div>
+                        <div class="traffic-light tl-maximize"></div>
+                    </div>
+                    <span class="app-title-text">k-Terminus</span>
+                </div>
+
+                <div class="app-header">
+                    <div class="header-logo">
+                        <span class="k">k</span><span class="dash">-</span><span class="terminus">Terminus</span>
+                    </div>
+                    <div class="header-divider"></div>
+                    <button class="header-tab active">Terminals</button>
+                    <button class="header-tab">Topology</button>
+                    <button class="header-tab">Health</button>
+                    <button class="header-tab">Logs</button>
+                    <div class="header-spacer"></div>
+                    <div class="header-status">
+                        <div class="status-dot connected"></div>
+                        <span>4 machines</span>
+                    </div>
+                </div>
+
+                <div class="app-body">
+
+                    <div class="app-sidebar">
+                        <div class="sidebar-tabs">
+                            <button class="sidebar-tab active">Machines</button>
+                            <button class="sidebar-tab">Sessions</button>
+                        </div>
+                        <div class="sidebar-content">
+
+                            <div class="machine-card selected">
+                                <div class="machine-header">
+                                    <div class="machine-status connected"></div>
+                                    <span class="machine-name">vivarium-server</span>
+                                </div>
+                                <div class="machine-meta">linux/arm64 · 2 sessions</div>
+                                <div class="machine-tags">
+                                    <span class="machine-tag">research</span>
+                                    <span class="machine-tag">gpu</span>
+                                </div>
+                            </div>
+
+                            <div class="machine-card">
+                                <div class="machine-header">
+                                    <div class="machine-status connected"></div>
+                                    <span class="machine-name">home-server</span>
+                                </div>
+                                <div class="machine-meta">linux/amd64 · 1 session</div>
+                                <div class="machine-tags">
+                                    <span class="machine-tag">storage</span>
+                                </div>
+                            </div>
+
+                            <div class="machine-card">
+                                <div class="machine-header">
+                                    <div class="machine-status connected"></div>
+                                    <span class="machine-name">work-macbook</span>
+                                </div>
+                                <div class="machine-meta">darwin/arm64 · 0 sessions</div>
+                            </div>
+
+                            <div class="machine-card">
+                                <div class="machine-header">
+                                    <div class="machine-status connecting"></div>
+                                    <span class="machine-name">cloud-vm</span>
+                                </div>
+                                <div class="machine-meta">linux/amd64 · reconnecting…</div>
+                            </div>
+
+                            <div class="machine-card">
+                                <div class="machine-header">
+                                    <div class="machine-status disconnected"></div>
+                                    <span class="machine-name">lab-workstation</span>
+                                </div>
+                                <div class="machine-meta">linux/amd64 · offline</div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="app-main">
+                        <div class="terminal-tabs">
+                            <div class="terminal-tab active">
+                                <span class="tab-indicator"></span>
+                                <span>vivarium-server</span>
+                                <span class="tab-close">×</span>
+                            </div>
+                            <div class="terminal-tab">
+                                <span class="tab-indicator"></span>
+                                <span>home-server</span>
+                                <span class="tab-close">×</span>
+                            </div>
+                        </div>
+
+                        <div class="terminal-content">
+                            <div><span class="term-comment"># Connected to vivarium-server via Tailscale</span></div>
+                            <div><span class="term-comment"># Session: sess_7a3f · PTY: /dev/pts/2</span></div>
+                            <div style="height:12px"></div>
+                            <div>
+                                <span class="term-machine">[vivarium]</span>
+                                <span class="term-path"> ~/research/cyclic-peptides</span>
+                                <span class="term-prompt"> ❯ </span>
+                                <span class="term-cmd">nvidia-smi --query-gpu=name,memory.used --format=csv</span>
+                            </div>
+                            <div><span class="term-output">name, memory.used [MiB]</span></div>
+                            <div><span class="term-output">NVIDIA A100-SXM4-80GB, 34521 MiB</span></div>
+                            <div style="height:10px"></div>
+                            <div>
+                                <span class="term-machine">[vivarium]</span>
+                                <span class="term-path"> ~/research/cyclic-peptides</span>
+                                <span class="term-prompt"> ❯ </span>
+                                <span class="term-cmd">python train.py --model gnn-v3 --epochs 200</span>
+                            </div>
+                            <div><span class="term-output">Epoch 142/200 ━━━━━━━━━━━━━━━━━━━━ 78% │ loss: 0.0234 │ R²:
+                                    0.881</span></div>
+                            <div style="height:10px"></div>
+                            <div>
+                                <span class="term-machine">[vivarium]</span>
+                                <span class="term-path"> ~/research/cyclic-peptides</span>
+                                <span class="term-prompt"> ❯ </span>
+                                <span class="term-cursor"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════ CLI OUTPUT ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">CLI Output</h2>
+
+            <div class="two-col">
+
+                <div class="cli-mockup">
+                    <div class="cli-chrome">
+                        <div class="cli-chrome-dots">
+                            <div class="cli-chrome-dot"></div>
+                            <div class="cli-chrome-dot"></div>
+                            <div class="cli-chrome-dot"></div>
+                        </div>
+                        <span class="cli-chrome-title">k-terminus serve</span>
+                    </div>
+                    <div class="cli-body">
+                        <div><span class="cli-dim">$</span> <span class="cli-value">k-terminus serve</span></div>
+                        <div style="height:14px"></div>
+                        <div>
+                            <span style="font-size:15px;font-weight:700;letter-spacing:-0.5px"><span
+                                    style="color:var(--mauve-mid)">k</span><span
+                                    style="color:var(--text-ghost);font-weight:300">-</span><span
+                                    style="color:var(--text-primary)">Terminus</span></span>
+                            <span class="cli-dim" style="margin-left:8px">Orchestrator</span>
+                        </div>
+                        <div style="height:12px"></div>
+                        <div>
+                            <span class="cli-dim"> listening</span>
+                            <span class="cli-value"> my-laptop.tailb54f12.ts.net:2222</span>
+                        </div>
+                        <div style="height:8px"></div>
+                        <div><span class="cli-dim"> connect agents:</span></div>
+                        <div><span class="cli-success"> k-terminus join my-laptop</span></div>
+                        <div style="height:16px"></div>
+                        <div><span class="cli-success"> ● </span><span class="cli-value">vivarium-server</span> <span
+                                class="cli-dim">connected</span></div>
+                        <div><span class="cli-success"> ● </span><span class="cli-value">home-server</span> <span
+                                class="cli-dim">connected</span></div>
+                        <div><span class="cli-warn"> ◐ </span><span class="cli-value">cloud-vm</span> <span
+                                class="cli-dim">reconnecting…</span></div>
+                    </div>
+                </div>
+
+                <div class="cli-mockup">
+                    <div class="cli-chrome">
+                        <div class="cli-chrome-dots">
+                            <div class="cli-chrome-dot"></div>
+                            <div class="cli-chrome-dot"></div>
+                            <div class="cli-chrome-dot"></div>
+                        </div>
+                        <span class="cli-chrome-title">k-terminus list</span>
+                    </div>
+                    <div class="cli-body">
+                        <div><span class="cli-dim">$</span> <span class="cli-value">k-terminus list</span></div>
+                        <div style="height:12px"></div>
+                        <div><span class="cli-label" style="font-weight:600;letter-spacing:1px">MACHINES</span></div>
+                        <div class="cli-table">
+                            <div><span
+                                    class="cli-table-border">┌──────────────────┬───────────┬─────────────┬──────────┐</span>
+                            </div>
+                            <div><span class="cli-table-border">│</span> <span class="cli-table-header">ID </span> <span
+                                    class="cli-table-border">│</span> <span class="cli-table-header">Hostname </span>
+                                <span class="cli-table-border">│</span> <span class="cli-table-header">Status </span>
+                                <span class="cli-table-border">│</span> <span class="cli-table-header">Sessions</span>
+                                <span class="cli-table-border">│</span></div>
+                            <div><span
+                                    class="cli-table-border">├──────────────────┼───────────┼─────────────┼──────────┤</span>
+                            </div>
+                            <div><span class="cli-table-border">│</span> <span class="cli-table-cell">vivarium-server
+                                </span> <span class="cli-table-border">│</span> <span class="cli-table-cell">viv-srv
+                                </span> <span class="cli-table-border">│</span> <span class="cli-success"> connected
+                                </span> <span class="cli-table-border">│</span> <span class="cli-table-cell">2 </span>
+                                <span class="cli-table-border">│</span></div>
+                            <div><span class="cli-table-border">│</span> <span class="cli-table-cell">home-server
+                                </span> <span class="cli-table-border">│</span> <span class="cli-table-cell">home-srv
+                                </span> <span class="cli-table-border">│</span> <span class="cli-success"> connected
+                                </span> <span class="cli-table-border">│</span> <span class="cli-table-cell">1 </span>
+                                <span class="cli-table-border">│</span></div>
+                            <div><span class="cli-table-border">│</span> <span class="cli-table-cell">cloud-vm </span>
+                                <span class="cli-table-border">│</span> <span class="cli-table-cell">ubuntu-vm</span>
+                                <span class="cli-table-border">│</span> <span class="cli-warn"> reconnecting</span><span
+                                    class="cli-table-border">│</span> <span class="cli-table-cell">0 </span> <span
+                                    class="cli-table-border">│</span></div>
+                            <div><span class="cli-table-border">│</span> <span
+                                    class="cli-table-cell">lab-workstation</span> <span
+                                    class="cli-table-border">│</span> <span class="cli-table-cell">lab-ws </span> <span
+                                    class="cli-table-border">│</span> <span class="cli-error"> offline </span> <span
+                                    class="cli-table-border">│</span> <span class="cli-table-cell">0 </span> <span
+                                    class="cli-table-border">│</span></div>
+                            <div><span
+                                    class="cli-table-border">└──────────────────┴───────────┴─────────────┴──────────┘</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ═══════════ TOPOLOGY ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Topology · <span class="jp-annotation">枯山水 (karesansui) — dry garden</span></h2>
+
+            <div class="topology-mockup">
+                <div class="topo-garden"></div>
+                <div class="topo-grid"></div>
+
+                <!-- Edges -->
+                <div class="topo-edge active" style="top:198px; left:358px; width:140px;"></div>
+                <div class="topo-edge active"
+                    style="top:248px; left:358px; width:160px; transform:rotate(25deg); transform-origin:left;"></div>
+                <div class="topo-edge active"
+                    style="top:168px; left:358px; width:170px; transform:rotate(-20deg); transform-origin:left;"></div>
+                <div class="topo-edge inactive"
+                    style="top:258px; left:358px; width:190px; transform:rotate(40deg); transform-origin:left;"></div>
+
+                <!-- Orchestrator -->
+                <div class="topo-node orchestrator" style="top:160px; left:160px;">
+                    <div class="topo-node-label">Orchestrator</div>
+                    <div class="topo-node-title">
+                        <span style="color:var(--mauve-mid)">my-laptop</span>
+                    </div>
+                    <div class="topo-node-meta">4 machines · 3 sessions · 02:34:12</div>
+                </div>
+
+                <!-- Agents -->
+                <div class="topo-node" style="top:120px; left:520px;">
+                    <div class="topo-node-title">
+                        <span
+                            style="width:6px;height:6px;border-radius:50%;background:var(--sage);display:inline-block"></span>
+                        vivarium-server
+                    </div>
+                    <div class="topo-node-meta">linux/arm64 · 2 sessions</div>
+                </div>
+
+                <div class="topo-node" style="top:200px; left:540px;">
+                    <div class="topo-node-title">
+                        <span
+                            style="width:6px;height:6px;border-radius:50%;background:var(--sage);display:inline-block"></span>
+                        home-server
+                    </div>
+                    <div class="topo-node-meta">linux/amd64 · 1 session</div>
+                </div>
+
+                <div class="topo-node" style="top:280px; left:560px;">
+                    <div class="topo-node-title">
+                        <span
+                            style="width:6px;height:6px;border-radius:50%;background:var(--sage-dim);display:inline-block"></span>
+                        work-macbook
+                    </div>
+                    <div class="topo-node-meta">darwin/arm64 · 0 sessions</div>
+                </div>
+
+                <div class="topo-node" style="top:330px; left:460px; opacity:0.5">
+                    <div class="topo-node-title">
+                        <span
+                            style="width:6px;height:6px;border-radius:50%;background:var(--terracotta-dim);display:inline-block"></span>
+                        <span style="color:var(--text-muted)">lab-workstation</span>
+                    </div>
+                    <div class="topo-node-meta">offline</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════ DESIGN NOTES ═══════════ -->
+        <section class="section">
+            <h2 class="section-title">Design Notes</h2>
+
+            <div class="philosophy-card">
+                <p>
+                    <strong>Intensity hierarchy:</strong> Structural chrome (sidebar edge, header, tab bars) uses 1px
+                    borders
+                    and no shadows — it recedes like the walls of a room. Interactive containers (machine cards,
+                    topology nodes)
+                    carry 2px borders and subtle presence. Action elements (buttons) get the full treatment. The
+                    terminal void
+                    is the innermost sanctum — maximum breathing room, minimum distraction.
+                </p>
+                <p>
+                    <strong>The light slit:</strong> The mauve accent never floods a surface. It appears as a 2px
+                    vertical line
+                    on selected cards, a 1px underline on active tabs, a subtle glow on focus states. Like light
+                    entering through
+                    a precise cut in Ando's concrete — it's powerful because it's constrained.
+                </p>
+                <p>
+                    <strong>Breathing animation:</strong> Status indicators don't pulse aggressively — they
+                    <em>breathe</em>,
+                    with a slow 3-second ease-in-out cycle. The cursor blinks with an ease curve, not a step function.
+                    Everything organic, nothing mechanical.
+                </p>
+                <p>
+                    <strong>Concrete texture:</strong> A fractal noise overlay at 3% opacity sits over everything,
+                    giving surfaces
+                    the subtle grain of poured concrete. It prevents the digital-flatness that makes dark UIs feel
+                    sterile.
+                </p>
+            </div>
+        </section>
+
+    </div>
+
+</body>
+
+</html>

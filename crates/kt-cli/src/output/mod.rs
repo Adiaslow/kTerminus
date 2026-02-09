@@ -1,4 +1,8 @@
-//! Output formatting utilities
+//! Output formatting utilities for the CLI
+//!
+//! This module provides functions for formatting various data types as
+//! human-readable output for the terminal, including tables for machines
+//! and sessions, status displays, and colored status messages.
 
 use tabled::{
     settings::{Style, Width},
@@ -7,7 +11,18 @@ use tabled::{
 
 use crate::ipc::{MachineInfo, OrchestratorStatus, SessionInfo};
 
-/// Format machine list as a table
+/// Format a list of machines as an ASCII table
+///
+/// Creates a formatted table displaying machine information with optional
+/// detailed view that includes connection timestamps and heartbeat info.
+///
+/// # Arguments
+/// * `machines` - Slice of machine information to display
+/// * `detailed` - If true, includes additional columns for timestamps
+///
+/// # Returns
+/// A formatted string suitable for terminal output, or "No machines connected"
+/// if the list is empty.
 pub fn format_machines(machines: &[MachineInfo], detailed: bool) -> String {
     if machines.is_empty() {
         return "No machines connected".to_string();
@@ -85,7 +100,17 @@ pub fn format_machines(machines: &[MachineInfo], detailed: bool) -> String {
     }
 }
 
-/// Format session list as a table
+/// Format a list of sessions as an ASCII table
+///
+/// Creates a formatted table displaying session information including
+/// session ID, machine, shell, PID, and creation time.
+///
+/// # Arguments
+/// * `sessions` - Slice of session information to display
+///
+/// # Returns
+/// A formatted string suitable for terminal output, or "No active sessions"
+/// if the list is empty.
 pub fn format_sessions(sessions: &[SessionInfo]) -> String {
     if sessions.is_empty() {
         return "No active sessions".to_string();
@@ -122,7 +147,17 @@ pub fn format_sessions(sessions: &[SessionInfo]) -> String {
     Table::new(rows).with(Style::rounded()).to_string()
 }
 
-/// Format orchestrator status
+/// Format orchestrator status as a human-readable string
+///
+/// Displays the orchestrator's running state, version, uptime, and
+/// connection counts. The detailed view includes additional metrics.
+///
+/// # Arguments
+/// * `status` - The orchestrator status to format
+/// * `detailed` - If true, includes additional metrics section
+///
+/// # Returns
+/// A multi-line formatted string suitable for terminal output.
 pub fn format_status(status: &OrchestratorStatus, detailed: bool) -> String {
     let mut output = String::new();
 
@@ -174,7 +209,9 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
-/// Print success message in green
+/// Print a success message in green with a checkmark prefix
+///
+/// Outputs to stdout with green coloring for positive feedback to the user.
 pub fn print_success(msg: &str) {
     use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 
@@ -189,7 +226,9 @@ pub fn print_success(msg: &str) {
     );
 }
 
-/// Print error message in red
+/// Print an error message in red with an X prefix
+///
+/// Outputs to stderr with red coloring for error feedback to the user.
 pub fn print_error(msg: &str) {
     use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 
@@ -204,7 +243,9 @@ pub fn print_error(msg: &str) {
     );
 }
 
-/// Print warning message in yellow
+/// Print a warning message in yellow with a warning symbol prefix
+///
+/// Outputs to stderr with yellow coloring for cautionary feedback to the user.
 pub fn print_warning(msg: &str) {
     use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 
@@ -219,7 +260,9 @@ pub fn print_warning(msg: &str) {
     );
 }
 
-/// Print info message
+/// Print an informational message in cyan with an info symbol prefix
+///
+/// Outputs to stdout with cyan coloring for informational feedback to the user.
 pub fn print_info(msg: &str) {
     use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 

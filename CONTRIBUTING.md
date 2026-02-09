@@ -178,6 +178,18 @@ The desktop app uses:
 - **xterm.js** for terminal emulation
 - **Tailwind CSS** for styling
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [README.md](README.md) | Project overview and quick start |
+| [SECURITY.md](SECURITY.md) | Security model and policies |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture details |
+| [docs/CLI.md](docs/CLI.md) | CLI command reference |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Configuration options |
+| [docs/TECHNICAL_DEBT.md](docs/TECHNICAL_DEBT.md) | Known issues and improvement plans |
+| [docs/specs/tech_spec.md](docs/specs/tech_spec.md) | Full technical specification |
+
 ## Questions?
 
 Open an issue for questions, feature requests, or bug reports.

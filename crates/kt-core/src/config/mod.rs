@@ -3,6 +3,7 @@
 mod agent;
 mod machine;
 mod orchestrator;
+pub mod serde_utils;
 
 pub use agent::AgentConfig;
 pub use machine::MachineProfile;

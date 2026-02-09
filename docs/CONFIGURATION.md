@@ -36,8 +36,9 @@ k-terminus config set orchestrator.heartbeat_interval 60
 ```toml
 [orchestrator]
 # Address and port to listen for agent connections
-# Default: "0.0.0.0:2222"
-bind_address = "0.0.0.0:2222"
+# Default: "127.0.0.1:2222" (localhost only for security)
+# Use "0.0.0.0:2222" to accept connections from the network
+bind_address = "127.0.0.1:2222"
 
 # Port for IPC (CLI/desktop communication) - localhost only
 # Default: 22230
@@ -61,11 +62,17 @@ heartbeat_interval = 30
 heartbeat_timeout = 90
 
 # Maximum concurrent agent connections (optional)
-# Default: unlimited
+# Limits the number of remote machines that can connect simultaneously.
+# When the limit is reached, new connections are rejected with an error.
+# Set to limit resource usage or for security hardening.
+# Default: unlimited (no limit)
 max_connections = 100
 
 # Maximum sessions per machine (optional)
-# Default: unlimited
+# Limits the number of terminal sessions that can be created on a single machine.
+# Prevents resource exhaustion from too many PTY processes.
+# When exceeded, new session requests return SessionLimitExceeded error.
+# Default: unlimited (no limit)
 max_sessions_per_machine = 10
 
 # Tailscale hostname (auto-detected, rarely needs manual setting)
@@ -150,7 +157,8 @@ connect_timeout = 30
 # Location: ~/.config/k-terminus/config.toml
 
 [orchestrator]
-bind_address = "0.0.0.0:2222"
+# Use 0.0.0.0:2222 to accept network connections
+bind_address = "127.0.0.1:2222"
 ipc_port = 22230
 heartbeat_interval = 30
 heartbeat_timeout = 90
@@ -210,5 +218,7 @@ In addition to the config file, k-Terminus stores:
 | `host_key` | SSH host key (Ed25519) |
 | `agent_key` | Agent's SSH private key |
 | `agent_key.pub` | Agent's SSH public key |
+| `ipc_auth_token` | IPC authentication token (mode 600) |
+| `orchestrator.pid` | PID file when running as daemon |
 
-These are auto-generated on first run.
+These are auto-generated on first run. The `ipc_auth_token` is regenerated each time the orchestrator starts.

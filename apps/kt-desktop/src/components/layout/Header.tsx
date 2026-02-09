@@ -1,11 +1,13 @@
 import { useAppStore, type ViewMode } from "../../stores/app";
 import { clsx } from "clsx";
+import { useState, useCallback } from "react";
+import { MenuIcon } from "../Icons";
 
-const viewModes: { id: ViewMode; label: string; icon: string }[] = [
-  { id: "terminals", label: "Terminals", icon: "⌨" },
-  { id: "topology", label: "Topology", icon: "🔗" },
-  { id: "health", label: "Health", icon: "💓" },
-  { id: "logs", label: "Logs", icon: "📋" },
+const viewModes: { id: ViewMode; label: string }[] = [
+  { id: "terminals", label: "Terminals" },
+  { id: "topology", label: "Topology" },
+  { id: "health", label: "Health" },
+  { id: "logs", label: "Logs" },
 ];
 
 export function Header() {
@@ -15,37 +17,39 @@ export function Header() {
   const showSidebar = useAppStore((s) => s.showSidebar);
   const isConnected = useAppStore((s) => s.isConnected);
   const status = useAppStore((s) => s.orchestratorStatus);
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  const copyPairingCode = useCallback(() => {
+    if (status?.pairingCode) {
+      navigator.clipboard.writeText(status.pairingCode);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  }, [status?.pairingCode]);
 
   return (
-    <header className="h-10 flex items-center bg-sidebar-bg border-b border-sidebar-active px-2 gap-2">
+    <header className="h-[46px] flex items-center bg-bg-surface border-b border-border px-4 gap-2">
       {/* Sidebar toggle */}
       <button
         onClick={toggleSidebar}
-        className="p-1.5 rounded hover:bg-sidebar-hover transition-colors"
+        className="p-1.5 rounded-zen hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
         title={showSidebar ? "Hide sidebar" : "Show sidebar"}
+        aria-label={showSidebar ? "Hide sidebar" : "Show sidebar"}
       >
-        <svg
-          className="w-4 h-4"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 6h16M4 12h16M4 18h16"
-          />
-        </svg>
+        <MenuIcon className="w-4 h-4" />
       </button>
 
-      {/* Logo */}
-      <div className="flex items-center gap-2 px-2">
-        <span className="text-terminal-blue font-bold">k-Terminus</span>
+      {/* Logo — k in mauve, - in ghost, Terminus in primary */}
+      <div className="flex items-center gap-2 px-3">
+        <span className="text-sm font-bold tracking-tight">
+          <span className="text-mauve-mid">k</span>
+          <span className="text-text-ghost font-light">-</span>
+          <span className="text-text-primary">Terminus</span>
+        </span>
       </div>
 
       {/* Divider */}
-      <div className="w-px h-5 bg-sidebar-active" />
+      <div className="w-px h-4 bg-border" />
 
       {/* View mode tabs */}
       <nav className="flex items-center gap-1">
@@ -54,14 +58,17 @@ export function Header() {
             key={mode.id}
             onClick={() => setViewMode(mode.id)}
             className={clsx(
-              "px-3 py-1 text-sm rounded transition-colors",
+              "relative px-4 py-1.5 text-xs font-medium rounded-zen transition-colors",
               viewMode === mode.id
-                ? "bg-sidebar-active text-terminal-fg"
-                : "text-terminal-fg/60 hover:text-terminal-fg hover:bg-sidebar-hover"
+                ? "bg-bg-elevated text-text-primary"
+                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover"
             )}
           >
-            <span className="mr-1.5">{mode.icon}</span>
             {mode.label}
+            {/* Light slit under active tab */}
+            {viewMode === mode.id && (
+              <span className="absolute bottom-0 left-1/4 right-1/4 h-px bg-mauve opacity-60 rounded" />
+            )}
           </button>
         ))}
       </nav>
@@ -69,15 +76,38 @@ export function Header() {
       {/* Spacer */}
       <div className="flex-1" />
 
+      {/* Pairing code */}
+      {isConnected && status?.pairingCode && (
+        <>
+          <button
+            onClick={copyPairingCode}
+            className="flex items-center gap-2 px-3 py-1 text-xs rounded-zen bg-bg-elevated hover:bg-bg-hover border border-border-faint transition-colors group"
+            title="Pairing code - click to copy"
+            aria-label={`Copy pairing code ${status.pairingCode}`}
+          >
+            <span className="text-text-ghost uppercase text-[10px] tracking-wide">
+              Code
+            </span>
+            <span className="font-mono font-bold tracking-wider text-mauve-mid">
+              {status.pairingCode}
+            </span>
+            <span className="text-[10px] text-text-ghost group-hover:text-text-muted">
+              {copiedCode ? "Copied!" : ""}
+            </span>
+          </button>
+          <div className="w-px h-4 bg-border" />
+        </>
+      )}
+
       {/* Connection status */}
-      <div className="flex items-center gap-2 px-2 text-sm">
+      <div className="flex items-center gap-2 px-2 text-xs">
         <div
           className={clsx(
-            "w-2 h-2 rounded-full",
-            isConnected ? "bg-terminal-green" : "bg-terminal-red"
+            "w-[7px] h-[7px] rounded-full",
+            isConnected ? "bg-sage" : "bg-terracotta-dim"
           )}
         />
-        <span className="text-terminal-fg/60">
+        <span className="text-text-muted">
           {isConnected
             ? `${status?.machineCount ?? 0} machines`
             : "Disconnected"}

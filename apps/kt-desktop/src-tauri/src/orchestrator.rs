@@ -10,7 +10,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use kt_core::config::{self, ConfigFile, OrchestratorConfig};
-use kt_core::ipc::IpcEvent;
+use kt_core::ipc::{IpcEvent, IpcEventEnvelope, StateEpoch};
 use kt_orchestrator::connection::TunnelConnection;
 use kt_orchestrator::ipc::IpcServer;
 use kt_orchestrator::server::{load_or_generate_host_key, ConnectionEvent, SshServer};
@@ -47,7 +47,13 @@ impl EmbeddedOrchestrator {
 
         // Load or generate host key
         let host_key = load_or_generate_host_key(&config.host_key_path).await?;
-        let host_key_fingerprint = host_key.clone_public_key().unwrap().fingerprint();
+        let host_key_fingerprint = host_key
+            .clone_public_key()
+            .map(|pk| pk.fingerprint())
+            .unwrap_or_else(|e| {
+                tracing::warn!("Could not extract public key for fingerprint: {}", e);
+                "<unknown>".to_string()
+            });
         tracing::info!("Host key fingerprint: {}", host_key_fingerprint);
 
         // Create orchestrator state
@@ -59,17 +65,18 @@ impl EmbeddedOrchestrator {
         // Start IPC server
         let ipc_address = config.ipc_address();
         let ipc_server = Arc::new(
-            IpcServer::new(ipc_address.clone(), Arc::clone(&state))
+            IpcServer::new(ipc_address.clone(), Arc::clone(&state))?
                 .with_shutdown_token(self.cancel.clone()),
         );
         let ipc_event_tx = ipc_server.event_sender();
 
         // Spawn event handler
         let state_clone = Arc::clone(&state);
+        let epoch_clone = Arc::clone(&state.epoch);
         let ipc_event_tx_clone = ipc_event_tx.clone();
         tokio::spawn(async move {
             while let Some(event) = event_rx.recv().await {
-                handle_connection_event(&state_clone, event, &ipc_event_tx_clone).await;
+                handle_connection_event(&state_clone, &epoch_clone, event, &ipc_event_tx_clone).await;
             }
         });
 
@@ -151,6 +158,10 @@ impl Default for EmbeddedOrchestrator {
 impl Drop for EmbeddedOrchestrator {
     fn drop(&mut self) {
         self.stop();
+        // Clean up token file on shutdown
+        if let Err(e) = kt_core::remove_ipc_token() {
+            tracing::warn!("Failed to remove IPC token file: {}", e);
+        }
     }
 }
 
@@ -174,8 +185,9 @@ fn load_config() -> Result<OrchestratorConfig> {
 /// Handle connection events from SSH handlers
 async fn handle_connection_event(
     state: &OrchestratorState,
+    epoch: &Arc<StateEpoch>,
     event: ConnectionEvent,
-    ipc_event_tx: &broadcast::Sender<IpcEvent>,
+    ipc_event_tx: &broadcast::Sender<IpcEventEnvelope>,
 ) {
     match event {
         ConnectionEvent::MachineConnected {
@@ -196,7 +208,7 @@ async fn handle_connection_event(
                 arch
             );
             // Register in connection pool with command channel
-            state.connections.insert(TunnelConnection::new(
+            state.coordinator.connections.insert(TunnelConnection::new(
                 machine_id.clone(),
                 Some(alias.clone()),
                 Some(hostname.clone()),
@@ -206,8 +218,8 @@ async fn handle_connection_event(
                 cancel,
             ));
 
-            // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::MachineConnected(kt_core::ipc::MachineInfo {
+            // Broadcast to IPC clients wrapped in envelope
+            let event = IpcEvent::MachineConnected(kt_core::ipc::MachineInfo {
                 id: machine_id.to_string(),
                 alias: Some(alias),
                 hostname,
@@ -218,18 +230,20 @@ async fn handle_connection_event(
                 last_heartbeat: None,
                 session_count: 0,
                 tags: vec![],
-            }));
+            });
+            let _ = ipc_event_tx.send(epoch.wrap_event(event));
         }
 
         ConnectionEvent::MachineDisconnected { machine_id } => {
             tracing::info!("Machine disconnected: {}", machine_id);
             // Remove from connection pool
-            state.connections.remove(&machine_id);
+            state.coordinator.connections.remove(&machine_id);
 
-            // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::MachineDisconnected {
+            // Broadcast to IPC clients wrapped in envelope
+            let event = IpcEvent::MachineDisconnected {
                 machine_id: machine_id.to_string(),
-            });
+            };
+            let _ = ipc_event_tx.send(epoch.wrap_event(event));
         }
 
         ConnectionEvent::SessionCreated {
@@ -244,17 +258,18 @@ async fn handle_connection_event(
                 pid
             );
             // Update session with PID from agent
-            state.sessions.set_pid(session_id, pid);
+            state.coordinator.sessions.set_pid(session_id, pid);
 
-            // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::SessionCreated(kt_core::ipc::SessionInfo {
+            // Broadcast to IPC clients wrapped in envelope
+            let event = IpcEvent::SessionCreated(kt_core::ipc::SessionInfo {
                 id: session_id.to_string(),
                 machine_id: machine_id.to_string(),
                 shell: None,
                 created_at: String::new(),
                 pid: Some(pid),
                 size: None,
-            }));
+            });
+            let _ = ipc_event_tx.send(epoch.wrap_event(event));
         }
 
         ConnectionEvent::SessionClosed {
@@ -263,12 +278,13 @@ async fn handle_connection_event(
         } => {
             tracing::info!("Session {} closed on {}", session_id, machine_id);
             // Remove session from session manager
-            state.sessions.remove(session_id);
+            state.coordinator.sessions.remove(session_id);
 
-            // Broadcast to IPC clients
-            let _ = ipc_event_tx.send(IpcEvent::SessionClosed {
+            // Broadcast to IPC clients wrapped in envelope
+            let event = IpcEvent::SessionClosed {
                 session_id: session_id.to_string(),
-            });
+            };
+            let _ = ipc_event_tx.send(epoch.wrap_event(event));
         }
 
         ConnectionEvent::SessionData {
@@ -276,12 +292,12 @@ async fn handle_connection_event(
             session_id,
             data,
         } => {
-            // Broadcast to IPC clients
+            // Broadcast to IPC clients wrapped in envelope
             let event = IpcEvent::TerminalOutput {
                 session_id: session_id.to_string(),
                 data,
             };
-            let _ = ipc_event_tx.send(event);
+            let _ = ipc_event_tx.send(epoch.wrap_event(event));
         }
     }
 }

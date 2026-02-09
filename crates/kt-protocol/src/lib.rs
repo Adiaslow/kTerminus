@@ -12,5 +12,5 @@ pub mod session;
 pub use codec::{Frame, FrameCodec};
 pub use error::ProtocolError;
 pub use frame::{FrameHeader, HEADER_SIZE, MAX_PAYLOAD_SIZE};
-pub use message::{ErrorCode, Message, MessageType, TerminalSize};
+pub use message::{ErrorCode, Message, MessageType, TerminalSize, PROTOCOL_VERSION};
 pub use session::SessionId;

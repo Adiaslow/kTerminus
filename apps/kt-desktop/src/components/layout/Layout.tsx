@@ -10,7 +10,7 @@ export function Layout() {
   const sidebarWidth = useAppStore((s) => s.sidebarWidth);
 
   return (
-    <div className="h-screen flex flex-col bg-terminal-bg">
+    <div className="h-screen flex flex-col bg-bg-void text-text-primary">
       {/* Header */}
       <Header />
 
@@ -89,8 +89,20 @@ function ResizeHandle() {
 
   return (
     <div
-      className="w-1 cursor-col-resize hover:bg-terminal-blue/30 transition-colors"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      tabIndex={0}
+      className="w-1 cursor-col-resize hover:bg-mauve/30 transition-colors focus:bg-mauve/40 focus:outline-none"
       onMouseDown={handleMouseDown}
+      onKeyDown={(e) => {
+        // Allow keyboard resizing with arrow keys
+        if (e.key === "ArrowLeft") {
+          setSidebarWidth(sidebarWidth - 10);
+        } else if (e.key === "ArrowRight") {
+          setSidebarWidth(sidebarWidth + 10);
+        }
+      }}
     />
   );
 }

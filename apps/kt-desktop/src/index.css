@@ -2,45 +2,122 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Base styles */
+/* ═══════════════════════════════════════════════
+   k-Terminus Design System
+   Zen Brutalism · 間 (Ma) · Natural Mauves
+   ═══════════════════════════════════════════════ */
+
 :root {
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Ground · 地 (chi) */
+  --bg-void: #15121a;
+  --bg-deep: #1a161e;
+  --bg-base: #201b24;
+  --bg-surface: #282230;
+  --bg-elevated: #322b3a;
+  --bg-hover: #3a3244;
+
+  /* Mauve · 光 (hikari) — light through the slit */
+  --mauve-deep: #5e4757;
+  --mauve: #9b7489;
+  --mauve-mid: #b8909f;
+  --mauve-light: #d4b0bf;
+  --mauve-wash: rgba(155, 116, 137, 0.07);
+  --mauve-glow: rgba(155, 116, 137, 0.04);
+
+  /* Earth Semantics · 自然 (shizen) */
+  --sage: #8a9e78;
+  --sage-dim: #637556;
+  --sage-wash: rgba(138, 158, 120, 0.07);
+  --ochre: #c4976a;
+  --ochre-dim: #9a7550;
+  --ochre-wash: rgba(196, 151, 106, 0.07);
+  --terracotta: #b56e6e;
+  --terracotta-dim: #8a5555;
+  --terracotta-wash: rgba(181, 110, 110, 0.07);
+
+  /* Text · 和紙 (washi) — handmade paper */
+  --text-primary: #ddd5d9;
+  --text-secondary: #9a8e92;
+  --text-muted: #665c60;
+  --text-ghost: #433b3f;
+  --text-whisper: #342e32;
+
+  /* Borders · Formwork lines */
+  --border-faint: #2e2734;
+  --border: #3a3240;
+  --border-strong: #4a4054;
+
+  /* Structural Params */
+  --border-w: 2px;
+  --radius: 3px;
+  --radius-lg: 4px;
+
+  /* Fonts */
+  --font-mono: 'JetBrains Mono', 'Fira Code', Monaco, Consolas, monospace;
+  --font-sans: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Texture */
+  --noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 html,
 body,
 #root {
   height: 100%;
-  margin: 0;
-  padding: 0;
   overflow: hidden;
 }
 
-/* Scrollbar styling */
+body {
+  background: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle concrete texture overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--noise);
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.4;
+}
+
+/* ═══════════════════════════════════════════════
+   Scrollbar Styling
+   ═══════════════════════════════════════════════ */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: theme("colors.terminal.black");
+  background: var(--bg-void);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: theme("colors.terminal.fg" / 20%);
-  border-radius: 4px;
+  background: var(--border);
+  border-radius: var(--radius);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: theme("colors.terminal.fg" / 40%);
+  background: var(--border-strong);
 }
 
-/* xterm.js overrides */
+/* ═══════════════════════════════════════════════
+   xterm.js Overrides
+   ═══════════════════════════════════════════════ */
+
 .xterm {
   padding: 8px;
 }
@@ -54,13 +131,37 @@ body,
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: theme("colors.terminal.fg" / 20%);
-  border-radius: 4px;
+  background: var(--border);
+  border-radius: var(--radius);
 }
+
+/* ═══════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════ */
+
+/* Breathing animation — organic, not mechanical */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Cursor blink — smooth ease */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 0.15; }
+}
+
+/* ═══════════════════════════════════════════════
+   Component Classes
+   ═══════════════════════════════════════════════ */
 
 /* Panel resize handles */
 .resize-handle {
-  @apply bg-transparent hover:bg-terminal-blue/30 transition-colors;
+  @apply bg-transparent hover:bg-mauve/20 transition-colors;
 }
 
 .resize-handle-horizontal {
@@ -71,74 +172,234 @@ body,
   @apply cursor-row-resize h-1;
 }
 
-/* Machine status indicators */
+/* Status indicators */
 .status-indicator {
-  @apply w-2 h-2 rounded-full;
+  @apply w-1.5 h-1.5 rounded-full;
 }
 
 .status-connected {
-  @apply bg-terminal-green;
+  @apply bg-sage;
 }
 
 .status-disconnected {
-  @apply bg-terminal-red;
+  @apply bg-terracotta-dim;
 }
 
 .status-connecting {
-  @apply bg-terminal-yellow animate-pulse;
+  @apply bg-ochre animate-breathe;
 }
 
-/* Tab styling */
+/* Tab styling — with light-slit indicator */
 .tab {
-  @apply px-3 py-1.5 text-sm cursor-pointer transition-colors;
-  @apply border-b-2 border-transparent;
-  @apply hover:bg-sidebar-hover;
+  @apply relative px-4 py-2 text-sm cursor-pointer transition-colors;
+  @apply text-text-ghost hover:text-text-muted;
 }
 
 .tab-active {
-  @apply border-terminal-blue bg-sidebar-active;
+  @apply text-text-secondary;
 }
 
-/* Button styling */
+.tab-active::after {
+  content: '';
+  @apply absolute bottom-0 left-1/4 right-1/4 h-px bg-mauve opacity-50;
+}
+
+/* Button styling — deliberate, weighted */
 .btn {
-  @apply px-3 py-1.5 rounded text-sm font-medium transition-colors;
-  @apply focus:outline-none focus:ring-2 focus:ring-terminal-blue/50;
+  @apply font-mono text-xs font-medium px-4 py-2 rounded-zen transition-all;
+  @apply border-2 cursor-pointer;
+}
+
+.btn:active {
+  transform: translate(1px, 1px);
 }
 
 .btn-primary {
-  @apply bg-terminal-blue text-white hover:bg-terminal-blue/80;
+  @apply bg-mauve-deep text-mauve-light border-mauve;
+  box-shadow: 0 2px 8px rgba(155, 116, 137, 0.15);
+}
+
+.btn-primary:hover {
+  @apply bg-mauve text-bg-deep;
+  box-shadow: 0 2px 12px rgba(155, 116, 137, 0.25);
 }
 
 .btn-secondary {
-  @apply bg-sidebar-hover text-terminal-fg hover:bg-sidebar-active;
+  @apply bg-bg-elevated text-text-secondary border-border-strong;
+}
+
+.btn-secondary:hover {
+  @apply border-mauve-deep text-text-primary;
 }
 
 .btn-danger {
-  @apply bg-terminal-red text-white hover:bg-terminal-red/80;
+  @apply bg-transparent text-terracotta border-terracotta-dim;
+}
+
+.btn-danger:hover {
+  @apply border-terracotta;
+  background: var(--terracotta-wash);
 }
 
 /* Input styling */
 .input {
-  @apply bg-terminal-black border border-sidebar-active rounded px-3 py-1.5;
-  @apply text-terminal-fg placeholder-terminal-fg/50;
-  @apply focus:outline-none focus:border-terminal-blue;
+  @apply font-mono text-xs px-3 py-2 rounded-zen;
+  @apply bg-bg-deep border border-border text-text-primary;
+  @apply placeholder:text-text-ghost placeholder:font-light;
+  @apply focus:outline-none focus:border-mauve-deep;
+  transition: all 0.15s;
 }
 
-/* React Flow customizations */
+.input:focus {
+  box-shadow: 0 0 0 3px var(--mauve-wash);
+}
+
+/* Tag styling — restrained, quiet */
+.tag {
+  @apply inline-block font-mono text-[10px] font-medium uppercase tracking-wider;
+  @apply px-2 py-0.5 border rounded-sm;
+}
+
+.tag-mauve {
+  @apply text-mauve-mid border-mauve-deep;
+}
+
+.tag-sage {
+  @apply text-sage border-sage-dim;
+}
+
+.tag-ochre {
+  @apply text-ochre border-ochre-dim;
+}
+
+/* Badge styling */
+.badge {
+  @apply inline-flex items-center gap-1.5 font-mono text-[11px] font-medium px-3 py-1 rounded-zen;
+}
+
+.badge-connected {
+  @apply text-sage;
+  background: var(--sage-wash);
+}
+
+.badge-disconnected {
+  @apply text-terracotta;
+  background: var(--terracotta-wash);
+}
+
+/* Machine card styling — stones in a garden */
+.machine-card {
+  @apply relative border-2 rounded-zen p-3 cursor-pointer transition-all;
+  @apply border-border-faint bg-bg-base;
+}
+
+.machine-card:hover {
+  @apply border-border bg-bg-elevated;
+}
+
+.machine-card.selected {
+  @apply border-mauve-deep;
+  background: var(--mauve-wash);
+}
+
+/* Light slit on selected card */
+.machine-card.selected::before {
+  content: '';
+  @apply absolute left-0 top-2 bottom-2 w-0.5 bg-mauve rounded-sm opacity-70;
+}
+
+/* ═══════════════════════════════════════════════
+   React Flow Customizations
+   ═══════════════════════════════════════════════ */
+
+/* Remove default node styling — our custom nodes handle their own */
 .react-flow__node {
-  @apply bg-sidebar-bg border border-sidebar-active rounded-lg;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  width: auto !important;
 }
 
+/* Remove selection outline from nodes */
+.react-flow__node.selected,
+.react-flow__node:focus,
+.react-flow__node:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Custom edge styling */
 .react-flow__edge-path {
-  stroke: theme("colors.terminal.fg" / 30%);
-  stroke-width: 2;
+  stroke: var(--border-strong);
+  stroke-width: 1;
 }
 
+/* Controls panel — bottom left */
 .react-flow__controls {
-  @apply bg-sidebar-bg border border-sidebar-active rounded;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-faint) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
 }
 
 .react-flow__controls-button {
-  @apply bg-sidebar-bg border-sidebar-active text-terminal-fg;
-  @apply hover:bg-sidebar-hover;
+  background: var(--bg-surface) !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border-faint) !important;
+  color: var(--text-muted) !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+  max-width: 14px !important;
+  max-height: 14px !important;
+}
+
+/* MiniMap — bottom right */
+.react-flow__minimap {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-faint) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(21, 18, 26, 0.85) !important;
+}
+
+/* Attribution — hide or style */
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Panel backgrounds */
+.react-flow__panel {
+  background: transparent !important;
+}
+
+/* Handle styling */
+.react-flow__handle {
+  background: var(--border) !important;
+  border: 2px solid var(--bg-surface) !important;
+  width: 10px !important;
+  height: 10px !important;
+}
+
+/* Prevent text selection during drag */
+.no-select {
+  user-select: none;
 }

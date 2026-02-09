@@ -1,6 +1,9 @@
 import { Handle, Position } from "@xyflow/react";
 import { clsx } from "clsx";
+import { useState, useCallback } from "react";
 import type { OrchestratorStatus } from "../../types";
+import { formatUptime } from "../../lib/utils";
+import { OrchestratorIcon } from "../Icons";
 
 interface OrchestratorNodeProps {
   data: { status: OrchestratorStatus };
@@ -8,38 +11,64 @@ interface OrchestratorNodeProps {
 
 export function OrchestratorNode({ data }: OrchestratorNodeProps) {
   const { status } = data;
+  const [copied, setCopied] = useState(false);
 
-  const formatUptime = (secs: number) => {
-    const days = Math.floor(secs / 86400);
-    const hours = Math.floor((secs % 86400) / 3600);
-    const mins = Math.floor((secs % 3600) / 60);
-
-    if (days > 0) return `${days}d ${hours}h`;
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-  };
+  const copyPairingCode = useCallback(() => {
+    if (status.pairingCode) {
+      navigator.clipboard.writeText(status.pairingCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [status.pairingCode]);
 
   return (
     <div
       className={clsx(
-        "px-5 py-4 rounded-xl border-2 bg-sidebar-bg min-w-[180px]",
-        "shadow-lg shadow-terminal-blue/20",
-        status.running ? "border-terminal-blue" : "border-terminal-red"
+        "relative px-5 py-4 rounded-zen border-2 bg-bg-surface min-w-[180px]",
+        status.running
+          ? "border-mauve-deep shadow-lg shadow-mauve/10"
+          : "border-terracotta-dim shadow-lg shadow-terracotta/10"
       )}
     >
+      {/* Light slit accent — top edge */}
+      <div
+        className={clsx(
+          "absolute top-0 left-4 right-4 h-px opacity-50",
+          status.running ? "bg-mauve" : "bg-terracotta"
+        )}
+      />
+
       {/* Connection handle */}
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!bg-terminal-blue !w-3 !h-3 !border-2 !border-sidebar-bg"
+        className={clsx(
+          "!w-3 !h-3 !border-2 !border-bg-surface !rounded-sm",
+          status.running ? "!bg-mauve" : "!bg-terracotta-dim"
+        )}
       />
 
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="text-2xl">🎛️</div>
+      <div className="flex items-center gap-3 mb-3">
+        {/* Orchestrator icon — abstract node symbol */}
+        <div className="w-6 h-6 flex items-center justify-center">
+          <OrchestratorIcon
+            className={clsx(
+              "w-5 h-5",
+              status.running ? "text-mauve" : "text-terracotta-dim"
+            )}
+          />
+        </div>
         <div>
-          <div className="font-semibold text-terminal-blue">Orchestrator</div>
-          <div className="text-xs text-terminal-fg/50">v{status.version}</div>
+          <div
+            className={clsx(
+              "font-medium text-sm",
+              status.running ? "text-mauve-mid" : "text-terracotta"
+            )}
+          >
+            Orchestrator
+          </div>
+          <div className="text-[10px] text-text-ghost">v{status.version}</div>
         </div>
       </div>
 
@@ -47,30 +76,59 @@ export function OrchestratorNode({ data }: OrchestratorNodeProps) {
       <div className="flex items-center gap-2 mb-3">
         <div
           className={clsx(
-            "w-2 h-2 rounded-full",
-            status.running ? "bg-terminal-green" : "bg-terminal-red"
+            "w-1.5 h-1.5 rounded-full",
+            status.running ? "bg-sage" : "bg-terracotta-dim"
           )}
         />
-        <span className="text-sm">
+        <span className="text-xs text-text-secondary">
           {status.running ? "Running" : "Stopped"}
         </span>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="bg-terminal-bg rounded p-2">
-          <div className="text-terminal-fg/50">Uptime</div>
-          <div className="font-medium">{formatUptime(status.uptimeSecs)}</div>
+      <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+        <div className="bg-bg-deep rounded-sm p-2">
+          <div className="text-text-ghost uppercase tracking-wide">Uptime</div>
+          <div className="font-medium text-text-primary">
+            {formatUptime(status.uptimeSecs)}
+          </div>
         </div>
-        <div className="bg-terminal-bg rounded p-2">
-          <div className="text-terminal-fg/50">Machines</div>
-          <div className="font-medium">{status.machineCount}</div>
+        <div className="bg-bg-deep rounded-sm p-2">
+          <div className="text-text-ghost uppercase tracking-wide">Machines</div>
+          <div className="font-medium text-text-primary">
+            {status.machineCount}
+          </div>
         </div>
-        <div className="bg-terminal-bg rounded p-2 col-span-2">
-          <div className="text-terminal-fg/50">Active Sessions</div>
-          <div className="font-medium">{status.sessionCount}</div>
+        <div className="bg-bg-deep rounded-sm p-2 col-span-2">
+          <div className="text-text-ghost uppercase tracking-wide">
+            Active Sessions
+          </div>
+          <div className="font-medium text-text-primary">
+            {status.sessionCount}
+          </div>
         </div>
       </div>
+
+      {/* Pairing Code */}
+      {status.pairingCode && (
+        <div className="mt-3 pt-3 border-t border-border-faint">
+          <div className="text-[10px] text-text-ghost uppercase tracking-wide mb-1.5">
+            Pairing Code
+          </div>
+          <button
+            onClick={copyPairingCode}
+            className="flex items-center justify-between w-full bg-bg-deep hover:bg-bg-elevated rounded-sm px-3 py-2 transition-colors group"
+            title="Click to copy"
+          >
+            <span className="font-mono font-bold text-sm tracking-wider text-mauve-mid">
+              {status.pairingCode}
+            </span>
+            <span className="text-[10px] text-text-ghost group-hover:text-text-muted transition-colors">
+              {copied ? "Copied!" : "Copy"}
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

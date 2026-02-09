@@ -9,8 +9,30 @@ use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use kt_core::time::current_time_millis;
 use kt_core::types::MachineId;
 use kt_protocol::{Message, SessionId, TerminalSize};
+
+/// Error returned when connection limit is exceeded
+#[derive(Debug, Clone)]
+pub struct ConnectionLimitExceeded {
+    /// Current number of connections
+    pub current: usize,
+    /// Maximum allowed connections
+    pub max: usize,
+}
+
+impl std::fmt::Display for ConnectionLimitExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Connection limit exceeded: {} connections (max {})",
+            self.current, self.max
+        )
+    }
+}
+
+impl std::error::Error for ConnectionLimitExceeded {}
 
 /// Commands that can be sent to an agent
 #[derive(Debug, Clone)]
@@ -36,7 +58,17 @@ pub enum AgentCommand {
 }
 
 impl AgentCommand {
-    /// Convert to protocol message and session ID
+    /// Convert an agent command to a protocol message and session ID
+    ///
+    /// This method transforms the high-level `AgentCommand` into the lower-level
+    /// protocol `Message` that can be sent over the wire. The returned session ID
+    /// indicates which session the message belongs to (or `SessionId::CONTROL` for
+    /// control messages like heartbeats).
+    ///
+    /// # Returns
+    /// A tuple of `(SessionId, Message)` where:
+    /// - `SessionId` - The target session for the message
+    /// - `Message` - The wire protocol message to send
     pub fn to_message(self) -> (SessionId, Message) {
         match self {
             AgentCommand::CreateSession {
@@ -65,6 +97,15 @@ impl AgentCommand {
 }
 
 /// Pool of active connections to remote machines
+///
+/// `ConnectionPool` provides thread-safe access to all active agent connections.
+/// It uses `DashMap` internally for lock-free concurrent reads and writes,
+/// making it suitable for high-concurrency scenarios where multiple sessions
+/// may be accessing different machines simultaneously.
+///
+/// # Thread Safety
+/// All methods on `ConnectionPool` are thread-safe and can be called from
+/// multiple tasks without external synchronization.
 pub struct ConnectionPool {
     /// Connections indexed by machine ID
     connections: DashMap<MachineId, Arc<TunnelConnection>>,
@@ -103,11 +144,6 @@ impl TunnelConnection {
         command_tx: mpsc::Sender<AgentCommand>,
         cancel: CancellationToken,
     ) -> Self {
-        let now_millis = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
         Self {
             machine_id,
             alias,
@@ -116,7 +152,7 @@ impl TunnelConnection {
             arch,
             command_tx,
             cancel,
-            last_heartbeat_millis: AtomicU64::new(now_millis),
+            last_heartbeat_millis: AtomicU64::new(current_time_millis()),
             connected_at: Instant::now(),
         }
     }
@@ -128,12 +164,8 @@ impl TunnelConnection {
 
     /// Update the last heartbeat timestamp
     pub fn record_heartbeat(&self) {
-        let now_millis = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
         self.last_heartbeat_millis
-            .store(now_millis, Ordering::SeqCst);
+            .store(current_time_millis(), Ordering::SeqCst);
     }
 
     /// Get the last heartbeat timestamp (epoch millis)
@@ -143,13 +175,9 @@ impl TunnelConnection {
 
     /// Check if the connection is considered healthy (heartbeat within timeout)
     pub fn is_healthy(&self, timeout: Duration) -> bool {
-        let now_millis = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
         let last = self.last_heartbeat_millis.load(Ordering::SeqCst);
-        let elapsed_millis = now_millis.saturating_sub(last);
-        elapsed_millis < timeout.as_millis() as u64
+        let elapsed = current_time_millis().saturating_sub(last);
+        elapsed < timeout.as_millis() as u64
     }
 
     /// Get connection uptime
@@ -167,32 +195,123 @@ impl ConnectionPool {
     }
 
     /// Get a connection by machine ID
+    ///
+    /// Returns `None` if no connection exists for the given machine ID.
+    /// The returned `Arc` can be safely cloned and used across tasks.
     pub fn get(&self, machine_id: &MachineId) -> Option<Arc<TunnelConnection>> {
         self.connections.get(machine_id).map(|r| Arc::clone(&r))
     }
 
-    /// List all connections
+    /// Get a connection by machine ID or alias
+    ///
+    /// First tries an exact match by machine ID, then falls back to searching
+    /// by alias. Returns `None` if no connection matches.
+    pub fn get_by_id_or_alias(&self, id_or_alias: &str) -> Option<Arc<TunnelConnection>> {
+        // First try exact machine ID match
+        let machine_id = MachineId::new(id_or_alias);
+        if let Some(conn) = self.get(&machine_id) {
+            return Some(conn);
+        }
+
+        // Fall back to alias search
+        for entry in self.connections.iter() {
+            if let Some(ref alias) = entry.alias {
+                if alias == id_or_alias {
+                    return Some(Arc::clone(&entry));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// List all active connections
+    ///
+    /// Returns a snapshot of all connections at the time of the call.
+    /// Note that connections may be added or removed by other tasks
+    /// while iterating over the returned vector.
     pub fn list(&self) -> Vec<Arc<TunnelConnection>> {
         self.connections.iter().map(|r| Arc::clone(&r)).collect()
     }
 
-    /// Number of active connections
+    /// Get the number of active connections
     pub fn len(&self) -> usize {
         self.connections.len()
     }
 
-    /// Check if pool is empty
+    /// Check if the pool has no active connections
     pub fn is_empty(&self) -> bool {
         self.connections.is_empty()
     }
 
     /// Add a connection to the pool
+    ///
+    /// If a connection with the same machine ID already exists, it will be
+    /// replaced. The old connection (if any) is not explicitly disconnected;
+    /// callers should handle cleanup before calling `insert`.
     pub fn insert(&self, connection: TunnelConnection) {
         let machine_id = connection.machine_id.clone();
         self.connections.insert(machine_id, Arc::new(connection));
     }
 
+    /// Try to add a connection to the pool, checking against a maximum limit.
+    ///
+    /// Returns `Ok(())` if the connection was added, or `Err(ConnectionLimitExceeded)` if the pool
+    /// is at capacity. If a connection with the same machine ID already exists,
+    /// it will be replaced (doesn't count against the limit).
+    ///
+    /// # Connection Replacement Policy
+    ///
+    /// Replacement connections (same machine_id) are always allowed, even when at the limit.
+    /// This is **intentional behavior** for the following reasons:
+    ///
+    /// 1. **Network resilience**: Agents may reconnect after network interruptions. Blocking
+    ///    reconnection would leave the machine orphaned even though it's trying to restore
+    ///    the connection.
+    ///
+    /// 2. **No amplification**: Replacing a connection doesn't increase the total count.
+    ///    The old connection is replaced atomically.
+    ///
+    /// 3. **Agent identity**: Machine IDs are tied to Tailscale identity, so an attacker
+    ///    cannot impersonate a machine to "steal" a connection slot.
+    ///
+    /// 4. **Graceful failover**: If an agent crashes and restarts, it should be able to
+    ///    reconnect without waiting for the old connection to timeout.
+    ///
+    /// The connection limit only prevents *new* machines from connecting when at capacity.
+    ///
+    /// # Arguments
+    /// * `connection` - The connection to add
+    /// * `max_connections` - Optional maximum number of connections. If `None`, no limit is enforced.
+    pub fn try_insert(
+        &self,
+        connection: TunnelConnection,
+        max_connections: Option<u32>,
+    ) -> Result<(), ConnectionLimitExceeded> {
+        let machine_id = connection.machine_id.clone();
+
+        // Check limit only if this is a new connection (not replacing existing)
+        // Replacement connections are always allowed - see docstring for rationale
+        if let Some(max) = max_connections {
+            if !self.connections.contains_key(&machine_id) && self.connections.len() >= max as usize
+            {
+                return Err(ConnectionLimitExceeded {
+                    current: self.connections.len(),
+                    max: max as usize,
+                });
+            }
+        }
+
+        self.connections.insert(machine_id, Arc::new(connection));
+        Ok(())
+    }
+
     /// Remove a connection from the pool
+    ///
+    /// Returns the removed connection if it existed, or `None` if no
+    /// connection was found for the given machine ID. The returned
+    /// connection is not disconnected; callers should call `disconnect()`
+    /// on it if needed.
     pub fn remove(&self, machine_id: &MachineId) -> Option<Arc<TunnelConnection>> {
         self.connections.remove(machine_id).map(|(_, v)| v)
     }
@@ -272,6 +391,54 @@ mod tests {
         let pool = ConnectionPool::new();
         let removed = pool.remove(&MachineId::new("nonexistent"));
         assert!(removed.is_none());
+    }
+
+    #[test]
+    fn test_connection_pool_get_by_id_or_alias() {
+        let pool = ConnectionPool::new();
+        pool.insert(create_test_connection("machine-1"));
+
+        // Lookup by exact machine ID should work
+        let conn = pool.get_by_id_or_alias("machine-1");
+        assert!(conn.is_some());
+        assert_eq!(conn.unwrap().machine_id.as_str(), "machine-1");
+
+        // Lookup by alias should work (test helper creates alias as "{id}-alias")
+        let conn = pool.get_by_id_or_alias("machine-1-alias");
+        assert!(conn.is_some());
+        assert_eq!(conn.unwrap().machine_id.as_str(), "machine-1");
+
+        // Lookup by nonexistent ID should return None
+        let conn = pool.get_by_id_or_alias("nonexistent");
+        assert!(conn.is_none());
+
+        // Lookup by nonexistent alias should return None
+        let conn = pool.get_by_id_or_alias("nonexistent-alias");
+        assert!(conn.is_none());
+    }
+
+    #[test]
+    fn test_connection_pool_get_by_alias_prefers_exact_id() {
+        let pool = ConnectionPool::new();
+
+        // Create a connection where the machine ID is "foo-alias"
+        // This tests that exact ID match takes precedence over alias search
+        let (tx, _rx) = mpsc::channel(1);
+        let conn = TunnelConnection::new(
+            MachineId::new("foo-alias"),
+            Some("bar".to_string()),  // Different alias
+            Some("host.local".to_string()),
+            "linux".to_string(),
+            "x86_64".to_string(),
+            tx,
+            CancellationToken::new(),
+        );
+        pool.insert(conn);
+
+        // Lookup "foo-alias" should find by exact ID, not by searching aliases
+        let result = pool.get_by_id_or_alias("foo-alias");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().machine_id.as_str(), "foo-alias");
     }
 
     #[test]

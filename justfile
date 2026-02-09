@@ -1,69 +1,134 @@
-# k-Terminus development commands
+# k-Terminus
 #
-# Quick start:
-#   just              - Run desktop app
-#   just serve        - Run orchestrator (CLI)
-#   just join <host>  - Connect as agent
+# Usage:
+#   just app          - Run desktop app
+#   just serve        - Start orchestrator (CLI)
+#   just join ABC123  - Connect as agent
 #
 # Examples:
-#   just join my-laptop
+#   just app
+#   just serve
+#   just join ABC123
 #   just list
-#   just connect my-server
 
-# Default: run the desktop app
-default: run
+# Path to release binary
+cli := "./target/release/k-terminus"
+app_path := "target/release/bundle/macos/k-Terminus.app"
 
-# Run the desktop GUI (orchestrator starts automatically)
-run:
-    cd apps/kt-desktop && npm run tauri:dev
+# Default: show help
+default:
+    @just --list
 
-# Run orchestrator in foreground
-serve *ARGS:
-    cargo run -p k-terminus -- serve --foreground {{ARGS}}
+# === Desktop App ===
 
-# Connect as agent to an orchestrator
-join HOST *ARGS:
-    cargo run -p k-terminus -- join {{HOST}} --foreground {{ARGS}}
+# Run desktop app
+app: _build-app
+    @open "{{app_path}}" || (echo "App not found, building..." && just _build-app && open "{{app_path}}")
+
+# === CLI Commands ===
+
+# Start orchestrator
+serve *ARGS: _build
+    {{cli}} serve --foreground {{ARGS}}
+
+# Connect as agent (pairing code or hostname)
+join *ARGS: _build
+    {{cli}} join {{ARGS}} --foreground
 
 # List connected machines
-list:
-    cargo run -p k-terminus -- list
+list: _build
+    {{cli}} list
 
 # Show orchestrator status
-status:
-    cargo run -p k-terminus -- status
+status: _build
+    {{cli}} status
 
 # Connect to a machine
-connect MACHINE *ARGS:
-    cargo run -p k-terminus -- connect {{MACHINE}} {{ARGS}}
+connect MACHINE *ARGS: _build
+    {{cli}} connect {{MACHINE}} {{ARGS}}
+
+# Stop orchestrator
+stop: _build
+    {{cli}} stop
 
 # Run any CLI command
-cli *ARGS:
-    cargo run -p k-terminus -- {{ARGS}}
+cli *ARGS: _build
+    {{cli}} {{ARGS}}
+
+# Install CLI globally (~/.cargo/bin)
+install:
+    cargo install --path crates/kt-cli
+
+# === Development ===
+
+# Run desktop app (dev mode with hot reload)
+dev: _kill-dev
+    cd apps/kt-desktop && pnpm run tauri:dev
+
+# Kill orphaned dev processes (Vite on port 1420)
+_kill-dev:
+    @lsof -ti:1420 | xargs kill -9 2>/dev/null || true
+
+# Clean up stale orchestrator files (PID, token)
+clean-state:
+    @rm -f ~/Library/Application\ Support/k-terminus/orchestrator.pid 2>/dev/null || true
+    @rm -f ~/Library/Application\ Support/k-terminus/ipc_auth_token 2>/dev/null || true
+    @rm -f ~/.config/k-terminus/orchestrator.pid 2>/dev/null || true
+    @rm -f ~/.config/k-terminus/ipc_auth_token 2>/dev/null || true
+    @echo "Cleaned up stale state files"
+
+# Run orchestrator (dev)
+dev-serve *ARGS:
+    cargo run -p k-terminus -- serve --foreground {{ARGS}}
+
+# Connect as agent (dev)
+dev-join *ARGS:
+    cargo run -p k-terminus -- join {{ARGS}} --foreground
+
+# === Internal ===
+
+# Build CLI (release)
+_build:
+    @cargo build --release -p k-terminus 2>/dev/null || cargo build --release -p k-terminus
+
+# Build desktop app (release)
+_build-app:
+    cd apps/kt-desktop && pnpm run tauri:build
 
 # === Build & Test ===
 
-build:
-    cargo build --release --workspace
+# Build everything (release)
+build: _build _build-app
 
-build-desktop:
-    cd apps/kt-desktop && npm run tauri:build
-
+# Type check
 check:
     cargo check --workspace
 
+# Run tests
 test:
     cargo test --workspace
 
+# Format code
 fmt:
     cargo fmt --all
 
+# Lint code
 lint:
     cargo clippy --workspace -- -D warnings
 
+# Clean build artifacts
 clean:
     cargo clean
+    rm -rf apps/kt-desktop/src-tauri/target
 
-# Install frontend dependencies
-install-deps:
-    cd apps/kt-desktop && npm install
+# Install dependencies
+setup:
+    cd apps/kt-desktop && pnpm install
+
+# === Aliases ===
+
+alias a := app
+alias s := serve
+alias j := join
+alias c := connect
+alias l := list

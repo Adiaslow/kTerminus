@@ -105,7 +105,11 @@ pub fn config_set(config_path: Option<&PathBuf>, key: &str, value: &str) -> Resu
     }
 
     // Set the value (try to parse as appropriate type)
-    let last_key = parts.last().unwrap();
+    // Safety: We already checked parts.is_empty() above and returned early if true,
+    // so parts.last() is guaranteed to return Some
+    let last_key = parts
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("Invalid key: key path cannot be empty"))?;
     let toml_value = if value == "true" {
         toml::Value::Boolean(true)
     } else if value == "false" {

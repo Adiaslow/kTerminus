@@ -4,11 +4,92 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize, PtySystem};
 
 use kt_protocol::{SessionId, TerminalSize};
+
+/// Allowed shell paths for security (prevents arbitrary command execution)
+const ALLOWED_SHELLS_UNIX: &[&str] = &[
+    "/bin/sh",
+    "/bin/bash",
+    "/bin/zsh",
+    "/bin/fish",
+    "/bin/dash",
+    "/bin/ksh",
+    "/bin/tcsh",
+    "/bin/csh",
+    "/usr/bin/sh",
+    "/usr/bin/bash",
+    "/usr/bin/zsh",
+    "/usr/bin/fish",
+    "/usr/bin/dash",
+    "/usr/bin/ksh",
+    "/usr/bin/tcsh",
+    "/usr/bin/csh",
+    "/usr/local/bin/bash",
+    "/usr/local/bin/zsh",
+    "/usr/local/bin/fish",
+    "/opt/homebrew/bin/bash",
+    "/opt/homebrew/bin/zsh",
+    "/opt/homebrew/bin/fish",
+];
+
+const ALLOWED_SHELLS_WINDOWS: &[&str] = &[
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "C:\\Windows\\System32\\cmd.exe",
+    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+];
+
+/// Validate that a shell path is allowed and exists
+fn validate_shell_path(shell: &str) -> Result<String> {
+    let allowed = if cfg!(windows) {
+        ALLOWED_SHELLS_WINDOWS
+    } else {
+        ALLOWED_SHELLS_UNIX
+    };
+
+    // Check if shell is in the allowed list
+    let shell_lower = shell.to_lowercase();
+    let is_allowed = allowed.iter().any(|s| {
+        let s_lower = s.to_lowercase();
+        shell_lower == s_lower || shell_lower.ends_with(&format!("/{}", s_lower.split('/').next_back().unwrap_or("")))
+    });
+
+    if !is_allowed {
+        // For Unix, also check if it's in /etc/shells
+        #[cfg(unix)]
+        if let Ok(shells) = std::fs::read_to_string("/etc/shells") {
+            if shells.lines().any(|line| {
+                let line = line.trim();
+                !line.starts_with('#') && line == shell
+            }) {
+                // Shell is in /etc/shells, verify it exists
+                if Path::new(shell).exists() {
+                    return Ok(shell.to_string());
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "Shell '{}' is not in the allowed shell list. Allowed shells: {:?}",
+            shell,
+            allowed
+        );
+    }
+
+    // Verify the shell exists on disk
+    let path = Path::new(shell);
+    if !path.exists() && !cfg!(windows) {
+        anyhow::bail!("Shell '{}' does not exist", shell);
+    }
+
+    Ok(shell.to_string())
+}
 
 /// Manages PTY sessions on the local machine
 pub struct PtyManager {
@@ -39,12 +120,18 @@ pub struct PtySession {
 }
 
 /// Output from a PTY session
+///
+/// This enum represents the possible outputs from a PTY session.
+/// Currently marked as `#[allow(dead_code)]` because:
+/// - The enum is part of the public API for future async PTY reading support
+/// - It will be used when implementing event-driven PTY output handling
+/// - Keeping it allows the API to be designed upfront without forcing immediate use
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum PtyOutput {
-    /// Data from the PTY
+    /// Data read from the PTY master
     Data(Vec<u8>),
-    /// Session exited
+    /// Session process exited with optional exit code
     Exited(Option<i32>),
 }
 
@@ -101,8 +188,8 @@ impl PtyManager {
             })
             .with_context(|| "Failed to open PTY")?;
 
-        // Determine which shell to use
-        let shell_path = shell
+        // Determine which shell to use with security validation
+        let requested_shell = shell
             .or_else(|| self.default_shell.clone())
             .or_else(|| std::env::var("SHELL").ok())
             .unwrap_or_else(|| {
@@ -113,7 +200,11 @@ impl PtyManager {
                 }
             });
 
-        tracing::debug!("Using shell: {}", shell_path);
+        // Validate the shell path for security
+        let shell_path = validate_shell_path(&requested_shell)
+            .with_context(|| format!("Invalid shell requested: {}", requested_shell))?;
+
+        tracing::debug!("Using validated shell: {}", shell_path);
 
         // Build the command
         let mut cmd = CommandBuilder::new(&shell_path);
